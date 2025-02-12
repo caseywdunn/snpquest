@@ -4,6 +4,7 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::vec;
+use std::collections::HashSet;
 use rustc_hash::FxHashMap;
 
 type Kmer = u64;
@@ -24,6 +25,11 @@ struct Args {
     /// minimum k-mer count
     #[arg(long, default_value_t = 2)]
     min_count: usize,
+
+    /// ploidy, used to remove snps whose number of variants are more than expected
+    /// in one or more samples
+    #[arg(long, default_value_t = 2)]
+    ploidy: usize,
 
     /// discard fraction of reads with highest k-mer counts
     #[arg(long, default_value_t = 0.05)]
@@ -124,6 +130,12 @@ fn main() {
             let line = line.unwrap();
             let mut parts = line.split_whitespace();
             let kmer_string = parts.next().unwrap();
+
+            // continue if the kmer does not start with the prefix
+            if !args.prefix.is_empty() && !kmer_string.starts_with(&args.prefix) {
+                continue;
+            }
+
             let kmer = string_to_kmer(kmer_string);
             let count: u64 = parts.next().unwrap().parse().unwrap();
             kmer_counts.insert(kmer, count);
@@ -215,7 +227,15 @@ fn main() {
     }
     println!("done.");
 
-    println!("Number of snps: {}", snps.len());
+    // Get the number of unique values after masking
+    let mut snp_sites: HashSet<Kmer>  = HashSet::new();
+
+    for kmer in snps.iter() {
+        snp_sites.insert(kmer & kmer_mask);
+    }
+
+    println!("Number of snp sites: {}", snp_sites.len());
+    println!("Number of snps across all sites: {}", snps.len());
 
 
 
