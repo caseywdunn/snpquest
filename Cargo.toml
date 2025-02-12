@@ -10,14 +10,6 @@ intmap = []
 nohashmap = []
 fxhashmap = []
 
-[[bin]]
-name = "snpforge"
-path = "src/snpforge.rs"
-
-[[bin]]
-name = "snpgather"
-path = "src/snpgather.rs"
-
 [dependencies]
 clap = { version = "4.2.7", features = ["derive"]}
 intmap =  { version = "2.0.0" }
