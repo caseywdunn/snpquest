@@ -80,6 +80,66 @@ fn string_to_kmer(s: &str) -> Kmer {
     kmer
 }
 
+fn discover_snp_sites(samples: &Vec<Sample>, k: usize) -> Vec<Kmer> {
+    print!("  Combining kmers across samples... ");
+    let mut kmers_all: Vec<Kmer> = vec![];
+    for sample in samples.iter() {
+        kmers_all.extend(sample.kmers.iter());
+    }
+    kmers_all.sort();
+    kmers_all.dedup();
+    println!("done.");
+
+    println!("  Finding snps... ");
+    // Create a Kmer bitmask for all but the last two bits
+    let mut kmer_mask: Kmer = 0;
+    for _ in 0..(k - 1) {
+        kmer_mask |= 0b11;
+        kmer_mask <<= 2;
+    }
+
+    
+
+    let mut snps: Vec<Kmer> = vec![];
+
+    // Iterate over the kmers and find those that are variable in the sample set
+    for i in 0..kmers_all.len() {
+        let mut is_variable = false;
+        if i > 0 {
+            let kmer = kmers_all[i];
+            let kmer_prev = kmers_all[i - 1];
+            if (kmer & kmer_mask) == (kmer_prev & kmer_mask) {
+                is_variable = true;
+            }
+        }
+
+        if i < kmers_all.len() - 1 {
+            let kmer = kmers_all[i];
+            let kmer_next = kmers_all[i + 1];
+            if (kmer & kmer_mask) == (kmer_next & kmer_mask) {
+                is_variable = true;
+            }
+        }
+
+        if is_variable {
+            snps.push(kmers_all[i]);
+        }
+    }
+    println!("done.");
+
+    // Get the number of unique values after masking
+    let mut snp_sites: HashSet<Kmer>  = HashSet::new();
+
+    for kmer in snps.iter() {
+        snp_sites.insert(kmer & kmer_mask);
+    }
+    println!("  Number of snp sites: {}", snp_sites.len());
+    println!("  Number of snps across all sites: {}", snps.len());
+
+    snps
+
+}
+
 fn main() {
     let start_run = std::time::Instant::now();
 
@@ -183,59 +243,9 @@ fn main() {
 
     println!("Ingesting samples done.");
 
-    print!("Combining kmers across samples... ");
-    let mut kmers_all: Vec<Kmer> = vec![];
-    for sample in samples.iter() {
-        kmers_all.extend(sample.kmers.iter());
-    }
-    kmers_all.sort();
-    kmers_all.dedup();
-    println!("done.");
-
-    print!("Finding snps... ");
-    // Create a Kmer bitmask for all but the last two bits
-    let mut kmer_mask: Kmer = 0;
-    for _ in 0..(k - 1) {
-        kmer_mask |= 0b11;
-        kmer_mask <<= 2;
-    }
-
-    let mut snps: Vec<Kmer> = vec![];
-
-    // Iterate over the kmers and find those that are variable in the sample set
-    for i in 0..kmers_all.len() {
-        let mut is_variable = false;
-        if i > 0 {
-            let kmer = kmers_all[i];
-            let kmer_prev = kmers_all[i - 1];
-            if (kmer & kmer_mask) == (kmer_prev & kmer_mask) {
-                is_variable = true;
-            }
-        }
-
-        if i < kmers_all.len() - 1 {
-            let kmer = kmers_all[i];
-            let kmer_next = kmers_all[i + 1];
-            if (kmer & kmer_mask) == (kmer_next & kmer_mask) {
-                is_variable = true;
-            }
-        }
-
-        if is_variable {
-            snps.push(kmers_all[i]);
-        }
-    }
-    println!("done.");
-
-    // Get the number of unique values after masking
-    let mut snp_sites: HashSet<Kmer>  = HashSet::new();
-
-    for kmer in snps.iter() {
-        snp_sites.insert(kmer & kmer_mask);
-    }
-
-    println!("Number of snp sites: {}", snp_sites.len());
-    println!("Number of snps across all sites: {}", snps.len());
+ 
+    // Discover the snp sites
+    let snp_sites = discover_snp_sites(&samples, k);
 
 
 
