@@ -1,0 +1,14 @@
+[package]
+name = "snpquest"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "snpforge"
+path = "src/snpforge.rs"
+
+[[bin]]
+name = "snpgather"
+path = "src/snpgather.rs"
+
+[dependencies]
