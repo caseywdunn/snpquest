@@ -434,7 +434,7 @@ mod tests {
         let samples = create_test_samples();
         let k = 3;
         let ploidy = 2;
-        let snp_set = discover_snp_sites(&samples, k, ploidy, 1.0, String::from(""));
+        let snp_set = discover_snp_sites(&samples, k, ploidy, 0.0, String::from(""));
         let snps = snp_set.snps;
         assert_eq!(snps.len(), 2);
 
