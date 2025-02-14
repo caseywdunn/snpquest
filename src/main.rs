@@ -1,14 +1,12 @@
-
+use clap::Parser;
+use rustc_hash::FxHashMap;
+use serde::{Deserialize, Serialize};
+use std::fs::File;
 use std::io::BufRead;
+use std::io::{Read, Write};
 use std::path::Path;
 use std::path::PathBuf;
 use std::vec;
-use std::fs::File;
-use std::io::{Write, Read};
-use clap::Parser;
-use rustc_hash::FxHashMap;
-use serde::{Serialize, Deserialize};
-use bincode;
 
 type Kmer = u64;
 type MapType = rustc_hash::FxHashMap<Kmer, u64>;
@@ -31,7 +29,6 @@ type SampleVariantCounts = Vec<VariantCount>;
 // Key is snp site, kmer with the last two bits masked to 0
 type Variants = FxHashMap<Kmer, SampleVariantCounts>;
 
-
 struct Sample {
     name: String,
     path: String,
@@ -39,7 +36,7 @@ struct Sample {
     kmers: Vec<Kmer>,
 }
 
-#[derive(serde::Serialize,Deserialize)]
+#[derive(serde::Serialize, Deserialize)]
 struct SnpSet {
     sample_names: Vec<String>,
     k: usize,
@@ -65,7 +62,7 @@ struct Args {
     #[arg(long, default_value_t = 0.05)]
     discard_fraction: f64,
 
-    /// Name of the sample, could be species and sample ID eg Nanomia-bijuga-YPMIZ035039. 
+    /// Name of the sample, could be species and sample ID eg Nanomia-bijuga-YPMIZ035039.
     /// Will be used as the prefix for output files
     #[arg(short, long, default_value_t = String::from("sample") )]
     sample: String,
@@ -115,8 +112,7 @@ fn string_to_kmer(s: &str) -> Kmer {
     kmer
 }
 
-fn discover_snp_sites(samples: &Vec<Sample>, k: usize, ploidy: usize) -> SnpSet {
-
+fn discover_snp_sites(samples: &[Sample], k: usize, ploidy: usize) -> SnpSet {
     println!("Finding snps... ");
     // Create a Kmer bitmask for all but the last two bits
     let mut kmer_mask: Kmer = 0;
@@ -135,25 +131,27 @@ fn discover_snp_sites(samples: &Vec<Sample>, k: usize, ploidy: usize) -> SnpSet 
             // Get the last two bits of the kmer
             let variant = kmer & 0b11;
             // If the snp site is not in the map, add it
-            if !variants.contains_key(&snp_site) {
-                variants.insert(snp_site, vec![VariantCount::default(); samples.len()]);
-            }
+            variants
+                .entry(snp_site)
+                .or_insert_with(|| vec![VariantCount::default(); samples.len()]);
             // Increment the count for the variant
             let sample_variants = variants.get_mut(&snp_site).unwrap();
             sample_variants[i][variant as usize] += 1;
         }
     }
 
-    println!("  Number of unique kmers ingested across all samples: {}", variants.len());
+    println!(
+        "  Number of unique kmers ingested across all samples: {}",
+        variants.len()
+    );
 
     let mut snps: Vec<Kmer> = vec![];
 
-    // Loop through the variants. If there are more than one across all samples and no more than 
-    // the ploidy in any one sample, identify the most common variant at the site and add 
+    // Loop through the variants. If there are more than one across all samples and no more than
+    // the ploidy in any one sample, identify the most common variant at the site and add
     // it to snps
 
     'kmer: for (snp_site, sample_variants) in variants.iter() {
-
         let mut variants_all_samples: VariantCount = [0; 4];
         // Count the number of variants at the site
         for sample in sample_variants.iter() {
@@ -179,7 +177,6 @@ fn discover_snp_sites(samples: &Vec<Sample>, k: usize, ploidy: usize) -> SnpSet 
             // Add the snp site to the list of snps
             snps.push(snp_site | max_variant as Kmer);
         }
-        
     }
 
     snps.sort();
@@ -190,8 +187,7 @@ fn discover_snp_sites(samples: &Vec<Sample>, k: usize, ploidy: usize) -> SnpSet 
         min_count: 2,
         ploidy,
         snps,
-    } 
-
+    }
 }
 
 fn main() {
@@ -199,7 +195,11 @@ fn main() {
 
     // Ingest command line arguments
     let args = Args::parse();
-    let outdir = if args.outdir.is_empty() { "." } else { &args.outdir };
+    let outdir = if args.outdir.is_empty() {
+        "."
+    } else {
+        &args.outdir
+    };
 
     // Print the program name and version
     println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
@@ -214,7 +214,6 @@ fn main() {
     std::fs::create_dir_all(&directory).unwrap();
 
     let mut k: usize = 0;
-
 
     let start = std::time::Instant::now();
     println!("Ingesting kmers...");
@@ -258,18 +257,20 @@ fn main() {
             }
 
             let kmer = string_to_kmer(kmer_string);
-            
+
             kmer_counts.insert(kmer, count);
             if k == 0 {
                 k = kmer_string.len();
-            }
-            else if k != kmer_string.len() {
+            } else if k != kmer_string.len() {
                 panic!("kmer length mismatch: {} != {}", k, kmer_string.len());
             }
         }
         println!("  Number of processed kmers: {}", line_n);
         println!("  Number of ingested kmers: {}", kmer_counts.len());
-        println!("  Total count of ingested kmers: {}", kmer_counts.values().sum::<u64>());
+        println!(
+            "  Total count of ingested kmers: {}",
+            kmer_counts.values().sum::<u64>()
+        );
         println!("  kmer length: {}", k);
 
         // remove the most common kmers
@@ -277,7 +278,11 @@ fn main() {
         counts.sort_by(|a, b| b.1.cmp(a.1));
         let n_to_discard = (args.discard_fraction * counts.len() as f64).round() as usize;
         println!("  Discarding {} kmers with highest counts", n_to_discard);
-        let keys_to_remove: Vec<Kmer> = counts.iter().take(n_to_discard).map(|(kmer, _)| **kmer).collect();
+        let keys_to_remove: Vec<Kmer> = counts
+            .iter()
+            .take(n_to_discard)
+            .map(|(kmer, _)| **kmer)
+            .collect();
         for kmer in keys_to_remove {
             kmer_counts.remove(&kmer);
         }
@@ -289,7 +294,7 @@ fn main() {
         samples.push(Sample {
             name: sample_name.to_string(),
             path: file_name.to_string(),
-            k: k,
+            k,
             kmers,
         });
     }
@@ -303,7 +308,7 @@ fn main() {
     }
 
     println!("Ingesting samples done, time: {:?}", start.elapsed());
-   
+
     let mut snp_set = SnpSet {
         sample_names: vec![],
         k: 0,
@@ -320,8 +325,7 @@ fn main() {
         file.read_to_end(&mut buffer).expect("Failed to read file");
 
         snp_set = bincode::deserialize(&buffer).expect("Failed to deserialize");
-    }
-    else {
+    } else {
         // Discover the snp sites
         let start = std::time::Instant::now();
         println!("Discovering snp sites...");
@@ -336,15 +340,12 @@ fn main() {
         let encoded: Vec<u8> = bincode::serialize(&snp_set).expect("Failed to serialize");
         file.write_all(&encoded).expect("Failed to write file");
         println!("done");
-
     }
-
 
     println!("Number of snps: {}", snp_set.snps.len());
 
     println!("Total run time: {:?}", start_run.elapsed());
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -352,8 +353,6 @@ mod tests {
 
     // These functions are used in the tests
     fn create_test_samples() -> Vec<Sample> {
-        
-
         let sample1 = Sample {
             name: "sample1".to_string(),
             path: "/path/to/sample1".to_string(),
@@ -361,14 +360,9 @@ mod tests {
             kmers: vec![
                 // Two variants at one site
                 // One shared with sample 2
-                0b001111, 
-                0b001101,
-                // Singleton, should be excluded
-                0b101110,
-                // Exceed ploidy, should be excluded 
-                0b111100, 
-                0b111101, 
-                0b111110
+                0b001111, 0b001101, // Singleton, should be excluded
+                0b101110, // Exceed ploidy, should be excluded
+                0b111100, 0b111101, 0b111110,
             ],
         };
 
@@ -379,24 +373,20 @@ mod tests {
             kmers: vec![
                 // Two variants at one site, unique to sample2
                 // Smaller should be retained
-                0b001001,
-                0b001011, 
-                // Should be included due to variation in sample1
-                0b001111,
-                // Should be excluded due to ploidy in sample1
-                0b111111, 
+                0b001001, 0b001011, // Should be included due to variation in sample1
+                0b001111, // Should be excluded due to ploidy in sample1
+                0b111111,
             ],
         };
 
         vec![sample1, sample2]
-
     }
 
     // Tests
     #[test]
     fn test_test() {
         // Testing using the node indices from the HashMap
-        assert_eq!(2+2, 4);
+        assert_eq!(2 + 2, 4);
     }
 
     #[test]
@@ -412,5 +402,4 @@ mod tests {
         assert_eq!(snps[0], 0b001001);
         assert_eq!(snps[1], 0b001111);
     }
-
 }
