@@ -80,7 +80,7 @@ struct Args {
     #[arg(short, long, default_value_t = String::from("./") )]
     outdir: String,
 
-    /// Input files, fastq. If no files are specified, data will be read
+    /// Input files. If no files are specified, data will be read
     /// from stdin. These are from jellyfish dump -c, eg Physalia_111156.kmers .
     /// Sample names are parsed from the file names
     #[arg()]
