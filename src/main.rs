@@ -4,7 +4,6 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::vec;
-use std::collections::HashSet;
 use rustc_hash::FxHashMap;
 
 type Kmer = u64;
@@ -98,9 +97,9 @@ fn string_to_kmer(s: &str) -> Kmer {
     kmer
 }
 
-fn discover_snp_sites(samples: &Vec<Sample>, k: usize) -> Vec<Kmer> {
+fn discover_snp_sites(samples: &Vec<Sample>, k: usize, ploidy: usize) -> Vec<Kmer> {
 
-    println!("  Finding snps... ");
+    println!("Finding snps... ");
     // Create a Kmer bitmask for all but the last two bits
     let mut kmer_mask: Kmer = 0;
     for _ in 0..(k - 1) {
@@ -108,67 +107,64 @@ fn discover_snp_sites(samples: &Vec<Sample>, k: usize) -> Vec<Kmer> {
         kmer_mask <<= 2;
     }
 
-    // For now each unique site will be represented by the kmer with the last two bits masked out
-    let mut snp_site_counts = MapType::default();
+    let mut variants: Variants = Variants::default();
 
-    for sample in samples.iter() {
-        sample.kmers.iter()
-            .for_each(|kmer| {
-                let masked_kmer = kmer & kmer_mask;
-                snp_site_counts.entry(masked_kmer).and_modify(|count| *count += 1).or_insert(1);
-            });
-    }
-
-    // Filter out sites with count of 1
-    let mut snp_site_variable: Vec<Kmer> = snp_site_counts.iter()
-        .filter(|(_, &count)| count > 1)
-        .map(|(kmer, _)| *kmer)
-        .collect();
-
-    let snp_site_vec: Vec<Kmer> = snp_site_variable.iter().copied().collect();
-
-    // This will record the major allele for each variant site,
-    // minor alleles are any kmers that differ only at last two bits
-    let mut snps: Vec<Kmer> = Vec::new();
-
-    // snp sites that have more alleles than ploidy in one or more samples
-    let mut snps_overrep: Vec<Kmer> = Vec::new();
-
-    // For each variable site, count each variant and select major allele
-    for site in snp_site_vec.iter() {
-        let mut snp: Kmer = 0;
-        for sample in samples.iter() {
-            let mut sample_snp: Vec<Kmer> = vec![];
-            for kmer in sample.kmers.iter() {
-                if kmer & kmer_mask == *site {
-                    sample_snp.push(kmer);
-                }
+    for i in 0..samples.len() {
+        let sample = &samples[i];
+        for kmer in sample.kmers.iter() {
+            // Mask the last two bits of the kmer
+            let snp_site = kmer & kmer_mask;
+            // Get the last two bits of the kmer
+            let variant = kmer & 0b11;
+            // If the snp site is not in the map, add it
+            if !variants.contains_key(&snp_site) {
+                variants.insert(snp_site, vec![VariantCount::default(); samples.len()]);
             }
-            if sample_snp.len() > 0 {
-                let mut snp_site_counts = MapType::default();
-                for kmer in sample_snp.iter() {
-                    sample_snp_set.insert(kmer & !0b11);
-                }
-                if sample_snp_set.len() > args.ploidy {
-                    snps_overrep.push(*site);
-                }
-                else {
-                    for kmer in sample_snp_set.iter() {
-                        snp |= kmer;
-                    }
-                }
-            }
-        }
-        if snp.count_ones() > 1 {
-            println!("Warning: more than two alleles at site {}", site);
-        }
-        else if snp.count_ones() == 1 {
-            snps.push(*site);
+            // Increment the count for the variant
+            let sample_variants = variants.get_mut(&snp_site).unwrap();
+            sample_variants[i][variant as usize] += 1;
         }
     }
 
-    println!("  Number of snps across all sites: {}", snp_site_variable.len());
+    println!("  Number of unique kmers ingested across all samples: {}", variants.len());
 
+    let mut snps: Vec<Kmer> = vec![];
+
+    // Loop through the variants. If there are more than one across all samples and no more than 
+    // the ploidy in any one sample, identify the most common variant at the site and add 
+    // it to snps
+
+    'kmer: for (snp_site, sample_variants) in variants.iter() {
+
+        let mut variants_all_samples: VariantCount = [0; 4];
+        // Count the number of variants at the site
+        for sample in sample_variants.iter() {
+            // if more than ploidy entries are greater than 0, break
+            if sample.iter().filter(|&&x| x > 0).count() > ploidy {
+                continue 'kmer;
+            }
+            // Add the sample's variants to the total
+            for i in 0..4 {
+                variants_all_samples[i] += sample[i];
+            }
+        }
+
+        if variants_all_samples.iter().filter(|&&x| x > 0).count() > 1 {
+            // Find the most common variant at the site
+            // Keep the smallest variant if there is a tie
+            let mut max_variant: usize = 0;
+            for i in 1..4 {
+                if variants_all_samples[i] > variants_all_samples[max_variant] {
+                    max_variant = i;
+                }
+            }
+            // Add the snp site to the list of snps
+            snps.push(snp_site | max_variant as Kmer);
+        }
+        
+    }
+
+    snps.sort();
     snps 
 
 }
@@ -223,6 +219,12 @@ fn main() {
             let line = line.unwrap();
             let mut parts = line.split_whitespace();
             let kmer_string = parts.next().unwrap();
+            let count: u64 = parts.next().unwrap().parse().unwrap();
+
+            // continue if the kmer count is less than the minimum count
+            if count < args.min_count as u64 {
+                continue;
+            }
 
             // continue if the kmer does not start with the prefix
             if !args.prefix.is_empty() && !kmer_string.starts_with(&args.prefix) {
@@ -230,7 +232,7 @@ fn main() {
             }
 
             let kmer = string_to_kmer(kmer_string);
-            let count: u64 = parts.next().unwrap().parse().unwrap();
+            
             kmer_counts.insert(kmer, count);
             if k == 0 {
                 k = kmer_string.len();
@@ -274,13 +276,86 @@ fn main() {
         }
     }
 
-    println!("Ingesting samples done.");
+    println!("Ingesting samples done, time: {:?}", start.elapsed());
+   
 
  
     // Discover the snp sites
-    let snps = discover_snp_sites(&samples, k);
+    let start = std::time::Instant::now();
+    println!("Discovering snp sites...");
+    let snps = discover_snp_sites(&samples, k, args.ploidy);
+    println!("Discovering snp sites done, time: {:?}", start.elapsed());
 
     println!("Number of snps: {}", snps.len());
 
     println!("Total run time: {:?}", start_run.elapsed());
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // These functions are used in the tests
+    fn create_test_samples() -> Vec<Sample> {
+        
+
+        let sample1 = Sample {
+            name: "sample1".to_string(),
+            path: "/path/to/sample1".to_string(),
+            k: 3,
+            kmers: vec![
+                // Two variants at one site
+                // One shared with sample 2
+                0b001111, 
+                0b001101,
+                // Singleton, should be excluded
+                0b101110,
+                // Exceed ploidy, should be excluded 
+                0b111100, 
+                0b111101, 
+                0b111110
+            ],
+        };
+
+        let sample2 = Sample {
+            name: "sample2".to_string(),
+            path: "/path/to/sample2".to_string(),
+            k: 3,
+            kmers: vec![
+                // Two variants at one site, unique to sample2
+                // Smaller should be retained
+                0b001001,
+                0b001011, 
+                // Should be included due to variation in sample1
+                0b001111,
+                // Should be excluded due to ploidy in sample1
+                0b111111, 
+            ],
+        };
+
+        vec![sample1, sample2]
+
+    }
+
+    // Tests
+    #[test]
+    fn test_test() {
+        // Testing using the node indices from the HashMap
+        assert_eq!(2+2, 4);
+    }
+
+    #[test]
+    fn test_discover_snp_sites() {
+        let samples = create_test_samples();
+        let k = 3;
+        let ploidy = 2;
+        let snps = discover_snp_sites(&samples, k, ploidy);
+        assert_eq!(snps.len(), 2);
+
+        // Should be in order
+        assert_eq!(snps[0], 0b001001);
+        assert_eq!(snps[1], 0b001111);
+    }
+
 }
