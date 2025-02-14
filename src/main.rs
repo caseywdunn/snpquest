@@ -63,7 +63,11 @@ struct Args {
     #[arg(long, default_value_t = 0.05)]
     discard_fraction: f64,
 
-    /// Name of the sample, could be species and sample ID eg Nanomia-bijuga-YPMIZ035039.
+    /// sample frequency minimum. The snp site must be present in at least this fraction of samples
+    #[arg(long, default_value_t = 1.0)]
+    freq_min: f64,
+
+    /// Name of the run, could be clade eg Physalia.
     /// Will be used as the prefix for output files
     #[arg(short, long, default_value_t = String::from("run") )]
     run_name: String,
@@ -113,7 +117,7 @@ fn string_to_kmer(s: &str) -> Kmer {
     kmer
 }
 
-fn discover_snp_sites(samples: &[Sample], k: usize, ploidy: usize, prefix: String) -> SnpSet {
+fn discover_snp_sites(samples: &[Sample], k: usize, ploidy: usize, freq_min: f64, prefix: String) -> SnpSet {
     println!("Finding snps... ");
     // Create a Kmer bitmask for all but the last two bits
     let mut kmer_mask: Kmer = 0;
@@ -148,22 +152,37 @@ fn discover_snp_sites(samples: &[Sample], k: usize, ploidy: usize, prefix: Strin
 
     let mut snps: Vec<Kmer> = vec![];
 
-    // Loop through the variants. If there are more than one across all samples and no more than
-    // the ploidy in any one sample, identify the most common variant at the site and add
-    // it to snps
+    // Loop through the variants. Criteria for inclusion are:
+    // - More than one across all samples
+    // - No more than the ploidy in any one sample
+    // - At least one variant in at least `freq_min` fraction of samples
+    // If met, identify the most common variant at the site and add it to snps
+
+    let n_samples_min = (freq_min * samples.len() as f64).round() as usize;
+    println!("  Minimum number of samples for a site to be considered a snp: {}", n_samples_min);
+
+    let mut n_rejected_exceed_ploidy = 0;
+    let mut n_rejected_below_freq = 0;
 
     'kmer: for (snp_site, sample_variants) in variants.iter() {
         let mut variants_all_samples: VariantCount = [0; 4];
         // Count the number of variants at the site
+        let mut n_samples_with_site = 0;
         for sample in sample_variants.iter() {
             // if more than ploidy entries are greater than 0, break
             if sample.iter().filter(|&&x| x > 0).count() > ploidy {
+                n_rejected_exceed_ploidy += 1;
                 continue 'kmer;
             }
             // Add the sample's variants to the total
             for i in 0..4 {
                 variants_all_samples[i] += sample[i];
             }
+        }
+
+        if n_samples_with_site < n_samples_min {
+            n_rejected_below_freq += 1;
+            continue;
         }
 
         if variants_all_samples.iter().filter(|&&x| x > 0).count() > 1 {
@@ -179,6 +198,10 @@ fn discover_snp_sites(samples: &[Sample], k: usize, ploidy: usize, prefix: Strin
             snps.push(snp_site | max_variant as Kmer);
         }
     }
+
+    println!("  Number of snps: {}", snps.len());
+    println!("  Number of snps rejected due to exceeding ploidy: {}", n_rejected_exceed_ploidy);
+    println!("  Number of snps rejected due to insufficient sampling across samples: {}", n_rejected_below_freq);
 
     snps.sort();
 
@@ -331,7 +354,7 @@ fn main() {
         // Discover the snp sites
         let start = std::time::Instant::now();
         println!("Discovering snp sites...");
-        snp_set = discover_snp_sites(&samples, k, args.ploidy, args.prefix);
+        snp_set = discover_snp_sites(&samples, k, args.ploidy, args.freq_min, args.prefix);
         println!("Discovering snp sites done, time: {:?}", start.elapsed());
 
         // Write the snp set to a file
@@ -396,7 +419,7 @@ mod tests {
         let samples = create_test_samples();
         let k = 3;
         let ploidy = 2;
-        let snp_set = discover_snp_sites(&samples, k, ploidy, String::from(""));
+        let snp_set = discover_snp_sites(&samples, k, ploidy, 1.0, String::from(""));
         let snps = snp_set.snps;
         assert_eq!(snps.len(), 2);
 
