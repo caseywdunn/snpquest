@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::BufRead;
 use std::io::{Read, Write};
-use std::path::{Path, Prefix};
 use std::path::PathBuf;
+use std::path::{Path, Prefix};
 use std::vec;
 
 type Kmer = u64;
@@ -117,7 +117,13 @@ fn string_to_kmer(s: &str) -> Kmer {
     kmer
 }
 
-fn discover_snp_sites(samples: &[Sample], k: usize, ploidy: usize, freq_min: f64, prefix: String) -> SnpSet {
+fn discover_snp_sites(
+    samples: &[Sample],
+    k: usize,
+    ploidy: usize,
+    freq_min: f64,
+    prefix: String,
+) -> SnpSet {
     println!("Finding snps... ");
     // Create a Kmer bitmask for all but the last two bits
     let mut kmer_mask: Kmer = 0;
@@ -159,7 +165,10 @@ fn discover_snp_sites(samples: &[Sample], k: usize, ploidy: usize, freq_min: f64
     // If met, identify the most common variant at the site and add it to snps
 
     let n_samples_min = (freq_min * samples.len() as f64).round() as usize;
-    println!("  Minimum number of samples for a site to be considered a snp: {}", n_samples_min);
+    println!(
+        "  Minimum number of samples for a site to be considered a snp: {}",
+        n_samples_min
+    );
 
     let mut n_rejected_exceed_ploidy = 0;
     let mut n_rejected_below_freq = 0;
@@ -200,8 +209,14 @@ fn discover_snp_sites(samples: &[Sample], k: usize, ploidy: usize, freq_min: f64
     }
 
     println!("  Number of snps: {}", snps.len());
-    println!("  Number of snps rejected due to exceeding ploidy: {}", n_rejected_exceed_ploidy);
-    println!("  Number of snps rejected due to insufficient sampling across samples: {}", n_rejected_below_freq);
+    println!(
+        "  Number of snps rejected due to exceeding ploidy: {}",
+        n_rejected_exceed_ploidy
+    );
+    println!(
+        "  Number of snps rejected due to insufficient sampling across samples: {}",
+        n_rejected_below_freq
+    );
 
     snps.sort();
 
