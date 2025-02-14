@@ -1,10 +1,14 @@
-use clap::Parser;
+
 use std::io::BufRead;
-use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::vec;
+use std::fs::File;
+use std::io::{Write, Read};
+use clap::Parser;
 use rustc_hash::FxHashMap;
+use serde::{Serialize, Deserialize};
+use bincode;
 
 type Kmer = u64;
 type MapType = rustc_hash::FxHashMap<Kmer, u64>;
@@ -35,6 +39,15 @@ struct Sample {
     kmers: Vec<Kmer>,
 }
 
+#[derive(serde::Serialize,Deserialize)]
+struct SnpSet {
+    sample_names: Vec<String>,
+    k: usize,
+    min_count: usize,
+    ploidy: usize,
+    snps: Vec<Kmer>,
+}
+
 /// A collection of kmer counting and analysis tools
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -56,6 +69,11 @@ struct Args {
     /// Will be used as the prefix for output files
     #[arg(short, long, default_value_t = String::from("sample") )]
     sample: String,
+
+    /// Name of file with previously identified snp sites. Will discover and write
+    /// the snps to a file if none is provided
+    #[arg(long, default_value_t = String::from("") )]
+    snp_file: String,
 
     /// kmer prefix for thinning kmers
     #[arg(short, long, default_value_t = String::from("") )]
@@ -97,7 +115,7 @@ fn string_to_kmer(s: &str) -> Kmer {
     kmer
 }
 
-fn discover_snp_sites(samples: &Vec<Sample>, k: usize, ploidy: usize) -> Vec<Kmer> {
+fn discover_snp_sites(samples: &Vec<Sample>, k: usize, ploidy: usize) -> SnpSet {
 
     println!("Finding snps... ");
     // Create a Kmer bitmask for all but the last two bits
@@ -165,7 +183,14 @@ fn discover_snp_sites(samples: &Vec<Sample>, k: usize, ploidy: usize) -> Vec<Kme
     }
 
     snps.sort();
-    snps 
+
+    SnpSet {
+        sample_names: samples.iter().map(|s| s.name.clone()).collect(),
+        k,
+        min_count: 2,
+        ploidy,
+        snps,
+    } 
 
 }
 
@@ -174,6 +199,7 @@ fn main() {
 
     // Ingest command line arguments
     let args = Args::parse();
+    let outdir = if args.outdir.is_empty() { "." } else { &args.outdir };
 
     // Print the program name and version
     println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
@@ -278,15 +304,43 @@ fn main() {
 
     println!("Ingesting samples done, time: {:?}", start.elapsed());
    
+    let mut snp_set = SnpSet {
+        sample_names: vec![],
+        k: 0,
+        min_count: 0,
+        ploidy: 0,
+        snps: vec![],
+    };
 
- 
-    // Discover the snp sites
-    let start = std::time::Instant::now();
-    println!("Discovering snp sites...");
-    let snps = discover_snp_sites(&samples, k, args.ploidy);
-    println!("Discovering snp sites done, time: {:?}", start.elapsed());
+    // If a snp file is provided, read it
+    if !args.snp_file.is_empty() {
+        println!("Reading snp file: {}", args.snp_file);
+        let mut file = File::open(args.snp_file).expect("Failed to open file");
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).expect("Failed to read file");
 
-    println!("Number of snps: {}", snps.len());
+        snp_set = bincode::deserialize(&buffer).expect("Failed to deserialize");
+    }
+    else {
+        // Discover the snp sites
+        let start = std::time::Instant::now();
+        println!("Discovering snp sites...");
+        snp_set = discover_snp_sites(&samples, k, args.ploidy);
+        println!("Discovering snp sites done, time: {:?}", start.elapsed());
+
+        // Write the snp set to a file
+        print!("Writing snp file: {}.snps... ", args.sample);
+        let mut file_path = PathBuf::from(&outdir);
+        file_path.push(format!("{}.snps", args.sample));
+        let mut file = File::create(file_path).expect("Failed to create file");
+        let encoded: Vec<u8> = bincode::serialize(&snp_set).expect("Failed to serialize");
+        file.write_all(&encoded).expect("Failed to write file");
+        println!("done");
+
+    }
+
+
+    println!("Number of snps: {}", snp_set.snps.len());
 
     println!("Total run time: {:?}", start_run.elapsed());
 }
@@ -350,7 +404,8 @@ mod tests {
         let samples = create_test_samples();
         let k = 3;
         let ploidy = 2;
-        let snps = discover_snp_sites(&samples, k, ploidy);
+        let snp_set = discover_snp_sites(&samples, k, ploidy);
+        let snps = snp_set.snps;
         assert_eq!(snps.len(), 2);
 
         // Should be in order
