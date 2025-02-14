@@ -64,8 +64,8 @@ struct Args {
 
     /// Name of the sample, could be species and sample ID eg Nanomia-bijuga-YPMIZ035039.
     /// Will be used as the prefix for output files
-    #[arg(short, long, default_value_t = String::from("sample") )]
-    sample: String,
+    #[arg(short, long, default_value_t = String::from("run") )]
+    run_name: String,
 
     /// Name of file with previously identified snp sites. Will discover and write
     /// the snps to a file if none is provided
@@ -333,9 +333,9 @@ fn main() {
         println!("Discovering snp sites done, time: {:?}", start.elapsed());
 
         // Write the snp set to a file
-        print!("Writing snp file: {}.snps... ", args.sample);
+        print!("Writing snp file: {}.snps... ", args.run_name);
         let mut file_path = PathBuf::from(&outdir);
-        file_path.push(format!("{}.snps", args.sample));
+        file_path.push(format!("{}.snps", args.run_name));
         let mut file = File::create(file_path).expect("Failed to create file");
         let encoded: Vec<u8> = bincode::serialize(&snp_set).expect("Failed to serialize");
         file.write_all(&encoded).expect("Failed to write file");
