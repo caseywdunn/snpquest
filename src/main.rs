@@ -178,6 +178,9 @@ fn discover_snp_sites(
         // Count the number of variants at the site
         let mut n_samples_with_site = 0;
         for sample in sample_variants.iter() {
+            if sample.iter().copied().sum::<u16>() > 0 {
+                n_samples_with_site += 1;
+            }
             // if more than ploidy entries are greater than 0, break
             if sample.iter().filter(|&&x| x > 0).count() > ploidy {
                 n_rejected_exceed_ploidy += 1;
