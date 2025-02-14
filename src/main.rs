@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::BufRead;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, Prefix};
 use std::path::PathBuf;
 use std::vec;
 
@@ -42,6 +42,7 @@ struct SnpSet {
     k: usize,
     min_count: usize,
     ploidy: usize,
+    prefix: String,
     snps: Vec<Kmer>,
 }
 
@@ -112,7 +113,7 @@ fn string_to_kmer(s: &str) -> Kmer {
     kmer
 }
 
-fn discover_snp_sites(samples: &[Sample], k: usize, ploidy: usize) -> SnpSet {
+fn discover_snp_sites(samples: &[Sample], k: usize, ploidy: usize, prefix: String) -> SnpSet {
     println!("Finding snps... ");
     // Create a Kmer bitmask for all but the last two bits
     let mut kmer_mask: Kmer = 0;
@@ -186,6 +187,7 @@ fn discover_snp_sites(samples: &[Sample], k: usize, ploidy: usize) -> SnpSet {
         k,
         min_count: 2,
         ploidy,
+        prefix: prefix,
         snps,
     }
 }
@@ -242,9 +244,8 @@ fn main() {
         for line in reader.lines() {
             line_n += 1;
             let line = line.unwrap();
-            let mut parts = line.split_whitespace();
-            let kmer_string = parts.next().unwrap();
-            let count: u64 = parts.next().unwrap().parse().unwrap();
+            let (kmer_string, count_str) = line.split_once(' ').unwrap();
+            let count: u64 = count_str.parse().unwrap();
 
             // continue if the kmer count is less than the minimum count
             if count < args.min_count as u64 {
@@ -314,6 +315,7 @@ fn main() {
         k: 0,
         min_count: 0,
         ploidy: 0,
+        prefix: String::from(""),
         snps: vec![],
     };
 
@@ -329,7 +331,7 @@ fn main() {
         // Discover the snp sites
         let start = std::time::Instant::now();
         println!("Discovering snp sites...");
-        snp_set = discover_snp_sites(&samples, k, args.ploidy);
+        snp_set = discover_snp_sites(&samples, k, args.ploidy, args.prefix);
         println!("Discovering snp sites done, time: {:?}", start.elapsed());
 
         // Write the snp set to a file
@@ -394,7 +396,7 @@ mod tests {
         let samples = create_test_samples();
         let k = 3;
         let ploidy = 2;
-        let snp_set = discover_snp_sites(&samples, k, ploidy);
+        let snp_set = discover_snp_sites(&samples, k, ploidy, String::from(""));
         let snps = snp_set.snps;
         assert_eq!(snps.len(), 2);
 
