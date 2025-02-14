@@ -10,6 +10,24 @@ use rustc_hash::FxHashMap;
 type Kmer = u64;
 type MapType = rustc_hash::FxHashMap<Kmer, u64>;
 
+// A nested datatype to hold count of snp variation:
+// - snp site, kmer with the last two bits masked to 0.
+// - a vector of length n where n is the number of samples
+// - an array of length 4, corresponding to A, C, G, T variants at the snp
+// - a value that is the count of each variant
+
+/// index `00` is count of `A`
+/// index `01` is count of `C`
+/// index `10` is count of `G`
+/// index `11` is count of `T`
+type VariantCount = [u16; 4];
+
+// Will be length of samples
+type SampleVariantCounts = Vec<VariantCount>;
+
+// Key is snp site, kmer with the last two bits masked to 0
+type Variants = FxHashMap<Kmer, SampleVariantCounts>;
+
 
 struct Sample {
     name: String,
@@ -81,14 +99,6 @@ fn string_to_kmer(s: &str) -> Kmer {
 }
 
 fn discover_snp_sites(samples: &Vec<Sample>, k: usize) -> Vec<Kmer> {
-    print!("  Combining kmers across samples... ");
-    let mut kmers_all: Vec<Kmer> = vec![];
-    for sample in samples.iter() {
-        kmers_all.extend(sample.kmers.iter());
-    }
-    kmers_all.sort();
-    kmers_all.dedup();
-    println!("done.");
 
     println!("  Finding snps... ");
     // Create a Kmer bitmask for all but the last two bits
@@ -98,45 +108,68 @@ fn discover_snp_sites(samples: &Vec<Sample>, k: usize) -> Vec<Kmer> {
         kmer_mask <<= 2;
     }
 
-    
+    // For now each unique site will be represented by the kmer with the last two bits masked out
+    let mut snp_site_counts = MapType::default();
 
-    let mut snps: Vec<Kmer> = vec![];
+    for sample in samples.iter() {
+        sample.kmers.iter()
+            .for_each(|kmer| {
+                let masked_kmer = kmer & kmer_mask;
+                snp_site_counts.entry(masked_kmer).and_modify(|count| *count += 1).or_insert(1);
+            });
+    }
 
-    // Iterate over the kmers and find those that are variable in the sample set
-    for i in 0..kmers_all.len() {
-        let mut is_variable = false;
-        if i > 0 {
-            let kmer = kmers_all[i];
-            let kmer_prev = kmers_all[i - 1];
-            if (kmer & kmer_mask) == (kmer_prev & kmer_mask) {
-                is_variable = true;
+    // Filter out sites with count of 1
+    let mut snp_site_variable: Vec<Kmer> = snp_site_counts.iter()
+        .filter(|(_, &count)| count > 1)
+        .map(|(kmer, _)| *kmer)
+        .collect();
+
+    let snp_site_vec: Vec<Kmer> = snp_site_variable.iter().copied().collect();
+
+    // This will record the major allele for each variant site,
+    // minor alleles are any kmers that differ only at last two bits
+    let mut snps: Vec<Kmer> = Vec::new();
+
+    // snp sites that have more alleles than ploidy in one or more samples
+    let mut snps_overrep: Vec<Kmer> = Vec::new();
+
+    // For each variable site, count each variant and select major allele
+    for site in snp_site_vec.iter() {
+        let mut snp: Kmer = 0;
+        for sample in samples.iter() {
+            let mut sample_snp: Vec<Kmer> = vec![];
+            for kmer in sample.kmers.iter() {
+                if kmer & kmer_mask == *site {
+                    sample_snp.push(kmer);
+                }
+            }
+            if sample_snp.len() > 0 {
+                let mut snp_site_counts = MapType::default();
+                for kmer in sample_snp.iter() {
+                    sample_snp_set.insert(kmer & !0b11);
+                }
+                if sample_snp_set.len() > args.ploidy {
+                    snps_overrep.push(*site);
+                }
+                else {
+                    for kmer in sample_snp_set.iter() {
+                        snp |= kmer;
+                    }
+                }
             }
         }
-
-        if i < kmers_all.len() - 1 {
-            let kmer = kmers_all[i];
-            let kmer_next = kmers_all[i + 1];
-            if (kmer & kmer_mask) == (kmer_next & kmer_mask) {
-                is_variable = true;
-            }
+        if snp.count_ones() > 1 {
+            println!("Warning: more than two alleles at site {}", site);
         }
-
-        if is_variable {
-            snps.push(kmers_all[i]);
+        else if snp.count_ones() == 1 {
+            snps.push(*site);
         }
     }
-    println!("done.");
 
-    // Get the number of unique values after masking
-    let mut snp_sites: HashSet<Kmer>  = HashSet::new();
+    println!("  Number of snps across all sites: {}", snp_site_variable.len());
 
-    for kmer in snps.iter() {
-        snp_sites.insert(kmer & kmer_mask);
-    }
-    println!("  Number of snp sites: {}", snp_sites.len());
-    println!("  Number of snps across all sites: {}", snps.len());
-
-    snps
+    snps 
 
 }
 
@@ -245,10 +278,9 @@ fn main() {
 
  
     // Discover the snp sites
-    let snp_sites = discover_snp_sites(&samples, k);
+    let snps = discover_snp_sites(&samples, k);
 
-
-
+    println!("Number of snps: {}", snps.len());
 
     println!("Total run time: {:?}", start_run.elapsed());
 }
