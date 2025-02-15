@@ -1,5 +1,5 @@
 use clap::Parser;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Deserialize;
 use std::fs::File;
 use std::io::BufRead;
@@ -262,33 +262,30 @@ fn kmer_to_string(kmer: Kmer, k: usize) -> String {
 }
 
 fn snp_caller(snp_set: &SnpSet, sample: &mut Sample) {
-    
-    // Create a Kmer bitmask for all but the last two bits
-    let mask: Kmer =  !0u64 & !0b11;
+    let mask: Kmer = !0u64 & !0b11;
+    let kmer_set: FxHashSet<Kmer> = sample.kmers.iter().copied().collect();
+    sample.genotype.clear();
 
-    sample.genotype = vec![];
+    for &snp in &snp_set.snps {
+        let site = snp & mask;
 
-    let mut position = 0;
-    for snp in snp_set.snps.iter() {
-        
-        // Retrieve matching kmers from the sample
-        let sample_kmers = sample.kmers.iter().filter(|&&kmer| (kmer & mask) == snp & mask);
-
+        // Check for variants by constructing kmers for each possible base
         let mut locus: Locus = 0;
 
-        for kmer in sample_kmers {
-            let variant = kmer & 0b11;
-            match variant {
-                0 => locus |= 0b0001,
-                1 => locus |= 0b0010,
-                2 => locus |= 0b0100,
-                3 => locus |= 0b1000,
-                _ => panic!("Invalid variant: {}", variant),
+        for variant in 0..4 {
+            let candidate = site | variant as Kmer;
+            if kmer_set.contains(&candidate) {
+                locus |= match variant {
+                    0 => 0b0001, // A
+                    1 => 0b0010, // C
+                    2 => 0b0100, // G
+                    3 => 0b1000, // T
+                    _ => 0,
+                };
             }
         }
 
         sample.genotype.push(locus);
-        position += 1;
     }
 }
 
