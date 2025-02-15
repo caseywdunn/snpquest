@@ -1,11 +1,11 @@
 use clap::Parser;
 use rustc_hash::FxHashMap;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::fs::File;
 use std::io::BufRead;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::path::{Path, Prefix};
+use std::path::Path;
 use std::vec;
 
 type Kmer = u64;
@@ -29,14 +29,28 @@ type SampleVariantCounts = Vec<VariantCount>;
 // Key is snp site, kmer with the last two bits masked to 0
 type Variants = FxHashMap<Kmer, SampleVariantCounts>;
 
+// Bit packed encoding of one or more nucleotides at a given site
+// It is a serialized base plane
+// 0000 No variant observed
+// 0001 A
+// 0010 C
+// 0100 G
+// 1000 T
+// These can be summed, so for example 0011 is A and C observed
+type Locus = u8;
+
+type Genotype = Vec<Locus>;
+
+#[derive(Clone)]
 struct Sample {
     name: String,
     path: String,
     k: usize,
     kmers: Vec<Kmer>,
+    genotype: Genotype,
 }
 
-#[derive(serde::Serialize, Deserialize)]
+#[derive(serde::Serialize, Deserialize, Clone)]
 struct SnpSet {
     sample_names: Vec<String>,
     k: usize,
@@ -206,7 +220,6 @@ fn discover_snp_sites(
                     max_variant = i;
                 }
             }
-            // Add the snp site to the list of snps
             snps.push(snp_site | max_variant as Kmer);
         }
     }
@@ -233,10 +246,55 @@ fn discover_snp_sites(
     }
 }
 
+fn kmer_to_string(kmer: Kmer, k: usize) -> String {
+    let mut s = String::new();
+    for i in 0..k {
+        let base = (kmer >> (2 * (k - i - 1))) & 0b11;
+        s.push(match base {
+            0 => 'A',
+            1 => 'C',
+            2 => 'G',
+            3 => 'T',
+            _ => panic!("Invalid base in kmer: {}", base),
+        });
+    }
+    s
+}
+
+fn snp_caller (snp_set: SnpSet, mut sample: Sample) {
+    
+    // Create a Kmer bitmask for all but the last two bits
+    let mask: Kmer =  !0u64 & !0b11;
+
+    sample.genotype = vec![];
+
+    let mut position = 0;
+    for snp in snp_set.snps.iter() {
+        
+        // Retrieve matching kmers from the sample
+        let sample_kmers = sample.kmers.iter().filter(|&&kmer| (kmer & mask) == snp & mask);
+
+        let mut locus: Locus = 0;
+
+        for kmer in sample_kmers {
+            let variant = kmer & 0b11;
+            match variant {
+                0 => locus |= 0b0001,
+                1 => locus |= 0b0010,
+                2 => locus |= 0b0100,
+                3 => locus |= 0b1000,
+                _ => panic!("Invalid variant: {}", variant),
+            }
+        }
+
+        sample.genotype.push(locus);
+        position += 1;
+    }
+}
+
 fn main() {
     let start_run = std::time::Instant::now();
 
-    // Ingest command line arguments
     let args = Args::parse();
     let outdir = if args.outdir.is_empty() {
         "."
@@ -244,15 +302,10 @@ fn main() {
         &args.outdir
     };
 
-    // Print the program name and version
     println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
-    // Print the arguments
     println!("{:?}", args);
 
-    // Parse the outdir path and sample, create directories if necessary
     let path = PathBuf::from(&args.outdir);
-
-    // Create the output directory if it does not exist
     let directory = format!("{}/", path.to_str().unwrap());
     std::fs::create_dir_all(&directory).unwrap();
 
@@ -338,6 +391,7 @@ fn main() {
             path: file_name.to_string(),
             k,
             kmers,
+            genotype: vec![],
         });
     }
 
@@ -363,7 +417,7 @@ fn main() {
     // If a snp file is provided, read it
     if !args.snp_file.is_empty() {
         println!("Reading snp file: {}", args.snp_file);
-        let mut file = File::open(args.snp_file).expect("Failed to open file");
+        let mut file = File::open(args.snp_file.clone()).expect("Failed to open file");
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).expect("Failed to read file");
 
@@ -375,6 +429,25 @@ fn main() {
         snp_set = discover_snp_sites(&samples, k, args.ploidy, args.freq_min, args.prefix);
         println!("Discovering snp sites done, time: {:?}", start.elapsed());
 
+
+    }
+    println!("Number of snps: {}", snp_set.snps.len());
+
+    // Loop over the samples and call the genotype
+    for sample in samples.iter_mut() {
+        snp_caller(snp_set.clone(), sample.to_owned());
+        let n_called = sample.genotype.iter().filter(|&&x| x > 0).count();
+        println!(
+            "Sample {}: {} genotypes called with {} kmers, {} variants",
+            sample.name,
+            n_called,
+            sample.kmers.len(),
+            sample.genotype.len()
+        );
+    }
+
+
+    if args.snp_file.is_empty() {
         // Write the snp set to a file
         print!("Writing snp file: {}.snps... ", args.run_name);
         let mut file_path = PathBuf::from(&outdir);
@@ -385,8 +458,6 @@ fn main() {
         println!("done");
     }
 
-    println!("Number of snps: {}", snp_set.snps.len());
-
     println!("Total run time: {:?}", start_run.elapsed());
 }
 
@@ -394,7 +465,7 @@ fn main() {
 mod tests {
     use super::*;
 
-    // These functions are used in the tests
+    // Functions used in the tests
     fn create_test_samples() -> Vec<Sample> {
         let sample1 = Sample {
             name: "sample1".to_string(),
