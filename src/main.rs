@@ -1,6 +1,9 @@
 use clap::Parser;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Deserialize;
+use noodles_bcf as bcf;
+use noodles_bcf::Writer;
+use noodles_vcf::{self as vcf, header::Contig};
 use std::fs::File;
 use std::io::BufRead;
 use std::io::{Read, Write};
@@ -286,6 +289,66 @@ fn snp_caller(snp_set: &SnpSet, sample: &mut Sample) {
         }
 
         sample.genotype.push(locus);
+    }
+}
+
+fn locus_to_string(locus: &Locus) -> String {
+    let mut s = String::new();
+    
+    if locus & 0b0001 > 0 {
+        s.push('A');
+    }
+
+    if locus & 0b0010 > 0 {
+        s.push('C');
+    }
+
+    if locus & 0b0100 > 0 {
+        s.push('G');
+    }
+
+    if locus & 0b1000 > 0 {
+        s.push('T');
+    }
+    s
+}
+
+fn write_bcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
+    let mut file_path = PathBuf::from(&outdir);
+    file_path.push(format!("{}.bcf", sample.name));
+    
+    // Open the file for writing
+
+    // Write the header
+
+    for (i, &snp) in snp_set.snps.iter().enumerate() {
+
+        let kmer_string = kmer_to_string(snp, snp_set.k);
+
+        // The last character is the major variant, which we will use as the ref
+        // The other three are the alt alleles
+        let reference = kmer_string.chars().last().unwrap().to_string();
+
+        // Construct the alternate alleles
+        let mut alts: String = String::new();
+
+        match reference.as_str() {
+            "A" => alts = "CGT".to_string(),
+            "C" => alts = "AGT".to_string(),
+            "G" => alts = "ACT".to_string(),
+            "T" => alts = "ACG".to_string(),
+            _ => panic!("Invalid reference base: {}", reference),
+        }
+        
+        // The ID is the kmer_string with the last character set to X
+        let id = kmer_string[0..snp_set.k - 1].to_string() + "X";
+
+        // String with the observed variants in this sample in this snp
+        let locus = sample.genotype[i];
+        let variants = locus_to_string(&locus);
+
+        // Write the record
+        
     }
 }
 
