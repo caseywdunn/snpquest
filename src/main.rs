@@ -261,7 +261,7 @@ fn kmer_to_string(kmer: Kmer, k: usize) -> String {
     s
 }
 
-fn snp_caller (snp_set: SnpSet, mut sample: Sample) {
+fn snp_caller(snp_set: &SnpSet, sample: &mut Sample) {
     
     // Create a Kmer bitmask for all but the last two bits
     let mask: Kmer =  !0u64 & !0b11;
@@ -434,18 +434,19 @@ fn main() {
     println!("Number of snps: {}", snp_set.snps.len());
 
     // Loop over the samples and call the genotype
+    println!("Calling genotypes...");
     for sample in samples.iter_mut() {
-        snp_caller(snp_set.clone(), sample.to_owned());
+        snp_caller(&snp_set, sample);
         let n_called = sample.genotype.iter().filter(|&&x| x > 0).count();
         println!(
-            "Sample {}: {} genotypes called with {} kmers, {} variants",
+            "  Sample {}: {} sites called with {} kmers, {} variants",
             sample.name,
             n_called,
             sample.kmers.len(),
             sample.genotype.len()
         );
     }
-
+    println!("Calling genotypes done.");
 
     if args.snp_file.is_empty() {
         // Write the snp set to a file
