@@ -366,13 +366,13 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         // homozygous major
         if variants.len() == 1 && variants[0] == reference.chars().next().unwrap() {
             alts_string = ".".to_string();
-            genotype_string = format!("0/0:10,10,100");
+            genotype_string = format!("0/0:10");
         } 
         // There is a single variant, and it is different from the reference
         // homozygous minor
         else if variants.len() == 1 && variants[0] != reference.chars().next().unwrap() {
             alts_string = variants[0].to_string();
-            genotype_string = format!("1/1:100,100,10");
+            genotype_string = format!("1/1:10");
         }
         // There are two variants, one is the same as the reference
         // heterozygous major/minor
