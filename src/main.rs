@@ -382,7 +382,7 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         }
         // There are two variants, neither is the same as the reference
         // heterozygous minor/minor
-        else if variants.len() == 2 && variants[1] == reference.chars().next().unwrap() {
+        else if variants.len() == 2 && variants[0] != reference.chars().next().unwrap() {
             alts_string = format!("{},{}", variants[0], variants[1]);
             genotype_string = format!("1/2:100,10,10");
         }
