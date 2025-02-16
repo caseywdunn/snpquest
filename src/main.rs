@@ -333,55 +333,63 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         // The last character is the major variant, which we will use as the ref
         let reference = kmer_string.chars().last().unwrap().to_string();
 
-        // Construct the alternate alleles
-        // The reference allele is always at index 0, and the alternates follow in a consistent order
-        let alleles = vec!["A".to_string(), "C".to_string(), "G".to_string(), "T".to_string()];
-        let ref_index = alleles.iter().position(|x| x == &reference).unwrap();
-
-        // Remove the reference allele from the alternates
-        let mut alts = alleles.clone();
-        alts.remove(ref_index);
-
-        let alts_string = alts.join(",");
-
         // The ID is the kmer_string with the last character set to X
         let id = kmer_string[0..snp_set.k - 1].to_string() + "X";
 
         // String with the observed variants in this sample in this snp
         let locus = sample.genotype[i];
-        let variants: Vec<char> = locus_to_string(&locus).chars().collect();
+        let mut variants: Vec<char> = locus_to_string(&locus).chars().collect();
 
-        // Map variants to their corresponding allele indices
-        let variants_numeric: Vec<String> = variants
-            .iter()
-            .map(|v| {
-                alleles
-                    .iter()
-                    .position(|x| x == &v.to_string())
-                    .unwrap_or_else(|| panic!("Invalid variant: {}", v))
-                    .to_string()
-            })
-            .collect();
+        // If there are more than one variants, sort them according to the follong criteria:
+        // - If one is the same as the reference, it is first
+        // - All other variants are sorted in alphabetical order
+        variants.sort_by(|a, b| {
+            if a == &reference.chars().next().unwrap() {
+                std::cmp::Ordering::Less
+            } else if b == &reference.chars().next().unwrap() {
+                std::cmp::Ordering::Greater
+            } else {
+                a.cmp(b)
+            }
+        });
 
         // If there are more than two variants, panic
-        if variants_numeric.len() > 2 {
-            panic!("More than two variants at site {}: {}", i, variants_numeric.len());
+        if variants.len() > 2 {
+            panic!("More than two variants at site, ploidy > 2 not yet supported {}: {}", i, variants.len());
         }
 
-        // Construct the genotype string
-        let genotype_text = match variants_numeric.len() {
-            0 => "./.:255,255,255".to_string(), // Not called
-            1 => {
-                if variants_numeric[0] == "0" {
-                    format!("{}/{}:10,10,100", variants_numeric[0], variants_numeric[0]) // Homozygous major
-                } else {
-                    format!("{}/{}:100,100,10", variants_numeric[0], variants_numeric[0]) // Homozygous minor
-                }
-                
-            }
-            2 => format!("{}/{}:10,10,100", variants_numeric[0], variants_numeric[1]), // Heterozygote
-            _ => unreachable!(),
-        };
+        // Construct the alt and genotype string
+        let genotype_string: String;
+        let alts_string: String;
+
+        // There is a single variant, and it is the same as the reference
+        // homozygous major
+        if variants.len() == 1 && variants[0] == reference.chars().next().unwrap() {
+            alts_string = ".".to_string();
+            genotype_string = format!("0/0:10,10,100");
+        } 
+        // There is a single variant, and it is different from the reference
+        // homozygous minor
+        else if variants.len() == 1 && variants[0] != reference.chars().next().unwrap() {
+            alts_string = variants[0].to_string();
+            genotype_string = format!("1/1:100,100,10");
+        }
+        // There are two variants, one is the same as the reference
+        // heterozygous major/minor
+        else if variants.len() == 2 && variants[0] == reference.chars().next().unwrap() {
+            alts_string = variants[1].to_string();
+            genotype_string = format!("0/1:10,10,100");
+        }
+        // There are two variants, neither is the same as the reference
+        // heterozygous minor/minor
+        else if variants.len() == 2 && variants[1] == reference.chars().next().unwrap() {
+            alts_string = format!("{},{}", variants[0], variants[1]);
+            genotype_string = format!("1/2:100,10,10");
+        }
+        // Unsupported case
+        else {
+            panic!("Unexpected case: {}", kmer_string);
+        }
 
         // Other fields
         let position = i + 1;
@@ -391,7 +399,7 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         writeln!(
             file,
             "{}\t{}\t{}\t{}\t{}\t30\tPASS\t.\tGT:PL\t{}",
-            chromosome, position, id, reference, alts_string, genotype_text
+            chromosome, position, id, reference, alts_string, genotype_string
         ).unwrap();
     }
 }
