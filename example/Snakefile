@@ -187,28 +187,17 @@ rule merge_vcf:
     shell:
         "bcftools merge {input.vcf} -o {output}"
 
-rule convert_to_beagle:
-    input:
-        "output_snp/Physalia_merged.vcf"
-    output:
-        "output_snp/Physalia_merged.beagle.gz"
-    shell:
-        "bcftools view -G -O z {input} > {output}"
-
 rule run_angsd:
     input:
-        beagle = "output_snp/Physalia_merged.beagle.gz",
-        fai = "output_snp/Physalia.pseudogenome.fasta.fai"
+        vcf = "output_snp/Physalia_merged.vcf"
     output:
-        "output_snp/pca_output.mafs",
-        "output_snp/pca_output.cov"
+        "output_snp/pca_output.mafs"
     shell:
         """
+        
         angsd \
-          -beagle {input.beagle} \
-          -doCov 1 \
+          -vcf-gl {input.vcf} \
           -doMajorMinor 1 \
           -doMaf 1 \
           -out output_snp/pca_output \
-          -fai {input.fai}
         """
