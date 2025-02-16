@@ -388,7 +388,7 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         }
         // Unsupported case
         else {
-            panic!("Unexpected case: {}", kmer_string);
+            panic!("Unexpected case!\n  kmer_string:{}\n  ref:{}\n  variants:{}", kmer_string, reference, variants.iter().collect::<String>());
         }
 
         // Other fields
