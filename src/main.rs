@@ -323,6 +323,7 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
     writeln!(file, "##source=snpquest").unwrap();
     writeln!(file, "##contig=<ID=1>").unwrap(); // Add contig definition for chromosome 1
     writeln!(file, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">").unwrap();
+    writeln!(file, "##FORMAT=<ID=PL,Number=G,Type=Integer,Description=\"Phred-scaled genotype likelihoods\">").unwrap();
     writeln!(file, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{}", sample.name).unwrap();
 
     // Write the records
@@ -369,9 +370,16 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
 
         // Construct the genotype string
         let genotype_text = match variants_numeric.len() {
-            0 => "./.".to_string(), // Not called
-            1 => format!("{}/{}", variants_numeric[0], variants_numeric[0]), // Homozygote
-            2 => format!("{}/{}", variants_numeric[0], variants_numeric[1]), // Heterozygote
+            0 => "./.:255,255,255".to_string(), // Not called
+            1 => {
+                if variants_numeric[0] == "0" {
+                    format!("{}/{}:10,10,100", variants_numeric[0], variants_numeric[0]) // Homozygous major
+                } else {
+                    format!("{}/{}:100,100,10", variants_numeric[0], variants_numeric[0]) // Homozygous minor
+                }
+                
+            }
+            2 => format!("{}/{}:10,10,100", variants_numeric[0], variants_numeric[1]), // Heterozygote
             _ => unreachable!(),
         };
 
@@ -382,7 +390,7 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         // Write the record
         writeln!(
             file,
-            "{}\t{}\t{}\t{}\t{}\t30\tPASS\t.\tGT\t{}",
+            "{}\t{}\t{}\t{}\t{}\t30\tPASS\t.\tGT:PL\t{}",
             chromosome, position, id, reference, alts_string, genotype_text
         ).unwrap();
     }
