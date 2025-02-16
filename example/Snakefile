@@ -180,11 +180,12 @@ rule index_fasta:
 
 rule merge_vcf:
     input:
-        expand("output_snp/{sample}_CAGT_k{thisk}.vcf.gz.tbi", sample = config["sample"], thisk = target_kmers)
+        tbi = expand("output_snp/{sample}_CAGT_k{thisk}.vcf.gz.tbi", sample = config["sample"], thisk = target_kmers),
+        vcf = expand("output_snp/{sample}_CAGT_k{thisk}.vcf.gz", sample = config["sample"], thisk = target_kmers)
     output:
         "output_snp/Physalia_merged.vcf"
     shell:
-        "bcftools merge {input} -o {output}"
+        "bcftools merge {input.vcf} -o {output}"
 
 rule convert_to_beagle:
     input:
