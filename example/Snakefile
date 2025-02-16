@@ -197,9 +197,18 @@ rule convert_to_beagle:
 
 rule run_angsd:
     input:
-        "output_snp/Physalia_merged.beagle.gz",
-        "output_snp/Physalia.pseudogenome.fasta.fai"
+        beagle = "output_snp/Physalia_merged.beagle.gz",
+        fai = "output_snp/Physalia.pseudogenome.fasta.fai"
     output:
-        "output_snp/pca_output.mafs"
+        "output_snp/pca_output.mafs",
+        "output_snp/pca_output.cov"
     shell:
-        "angsd -beagle {input[0]} -doCov 1 -doMajorMinor 1 -doMaf 1 -out pca_output -fai {input[1]}"
+        """
+        angsd \
+          -beagle {input.beagle} \
+          -doCov 1 \
+          -doMajorMinor 1 \
+          -doMaf 1 \
+          -out output_snp/pca_output \
+          -fai {input.fai}
+        """
