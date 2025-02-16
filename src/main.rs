@@ -388,6 +388,24 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
     }
 }
 
+fn write_pseudogenome (snp_set: &SnpSet, outdir: &str, run_name: String) {
+    let mut file_path = PathBuf::from(&outdir);
+    file_path.push(format!("{}.pseudogenome.fasta", run_name));
+
+    // Open the file for writing
+    let mut file = File::create(file_path).expect("Failed to create file");
+
+    // Write the header
+    writeln!(file, ">1").unwrap();
+
+    // Write the sequence
+    for snp in &snp_set.snps {
+        let kmer_string = kmer_to_string(*snp, snp_set.k);
+        let major_variant = kmer_string.chars().last().unwrap();
+        write!(file, "{}", major_variant).unwrap();
+    }
+}
+
 fn main() {
     let start_run = std::time::Instant::now();
 
@@ -549,6 +567,11 @@ fn main() {
     for sample in samples.iter() {
         write_vcf_from_sample(sample, &snp_set, outdir);
     }
+    println!("done");
+
+    // Write the pseudogenome
+    print!("Writing pseudogenome... ");
+    write_pseudogenome(&snp_set, outdir, args.run_name.clone());
     println!("done");
 
     if args.snp_file.is_empty() {
