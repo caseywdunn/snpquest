@@ -178,7 +178,7 @@ rule index_fasta:
 
 rule merge_vcf:
     input:
-        expand("output_snp/{{sample}}_CAGT_k{thisk}.vcf.gz.tbi", sample = config["sample"], thisk = target_kmers)
+        expand("output_snp/{sample}_CAGT_k{thisk}.vcf.gz.tbi", sample = config["sample"], thisk = target_kmers)
     output:
         "output_snp/Physalia_merged.vcf"
     shell:
