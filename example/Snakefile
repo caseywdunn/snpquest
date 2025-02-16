@@ -184,7 +184,7 @@ rule merge_vcf:
     output:
         "output_snp/Physalia_merged.vcf"
     shell:
-        "bcftools merge *.vcf.gz -o {output}"
+        "bcftools merge {input} -o {output}"
 
 rule convert_to_beagle:
     input:
