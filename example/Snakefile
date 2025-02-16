@@ -9,7 +9,9 @@ target_kmers = [21]
 rule all:
     input:
         expand("output/{sample}_k{thisk}.kmers", sample = config["sample"], thisk = target_kmers),
-        expand("output/{sample}_CAGT_k{thisk}.kmers", sample=config["sample"], thisk=target_kmers)
+        expand("output/{sample}_CAGT_k{thisk}.kmers", sample=config["sample"], thisk=target_kmers),
+        "Physalia_merged.beagle.gz",
+        "pca_output.mafs"
 
 rule decompress_reads:
     input:
@@ -140,3 +142,61 @@ rule filter_kmers:
         """
         grep -P "^CAGT" {input.kmers} > {output.kmers}
         """
+
+rule run_snpquest:
+    input:
+        expand("output/{sample}_CAGT_k{thisk}.kmers", sample = config["sample"], thisk = target_kmers)
+    output:
+        expand("output_snp/{sample}_CAGT_k{thisk}.vcf", sample = config["sample"], thisk = target_kmers),
+        "output_snp/Physalia.pseudogenome.fasta"
+    shell:
+        "../target/release/snpquest --outdir output_snp/ --freq-min 1.0 --run-name Physalia --prefix 'CAGT' {input}"
+
+rule bgzip_vcf:
+    input:
+        "output_snp/{sample}_CAGT_k{thisk}.vcf"
+    output:
+        "output_snp/{sample}_CAGT_k{thisk}.vcf.gz"
+    shell:
+        "bgzip {input}"
+
+rule index_vcf:
+    input:
+        "output_snp/{sample}_CAGT_k{thisk}.vcf.gz"
+    output:
+        "output_snp/{sample}_CAGT_k{thisk}.vcf.gz.tbi"
+    shell:
+        "tabix -p vcf {input}"
+
+rule index_fasta:
+    input:
+        "output_snp/Physalia.pseudogenome.fasta"
+    output:
+        "output_snp/Physalia.pseudogenome.fasta.fai"
+    shell:
+        "samtools faidx {input}"
+
+rule merge_vcf:
+    input:
+        expand("output_snp/{{sample}}_CAGT_k{thisk}.vcf.gz.tbi", sample = config["sample"], thisk = target_kmers)
+    output:
+        "output_snp/Physalia_merged.vcf"
+    shell:
+        "bcftools merge *.vcf.gz -o {output}"
+
+rule convert_to_beagle:
+    input:
+        "output_snp/Physalia_merged.vcf"
+    output:
+        "output_snp/Physalia_merged.beagle.gz"
+    shell:
+        "bcftools view -G -O z {input} > {output}"
+
+rule run_angsd:
+    input:
+        "output_snp/Physalia_merged.beagle.gz",
+        "output_snp/Physalia.pseudogenome.fasta.fai"
+    output:
+        "output_snp/pca_output.mafs"
+    shell:
+        "angsd -beagle {input[0]} -doCov 1 -doMajorMinor 1 -doMaf 1 -out pca_output -fai {input[1]}"
