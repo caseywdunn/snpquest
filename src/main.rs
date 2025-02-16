@@ -1,15 +1,13 @@
-use clap::Parser;
-use rustc_hash::{FxHashMap, FxHashSet};
-use serde::Deserialize;
-use noodles_bcf as bcf;
-use noodles_bcf::Writer;
-use noodles_vcf::{self as vcf, header::Contig};
 use std::fs::File;
 use std::io::BufRead;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::path::Path;
 use std::vec;
+
+use clap::Parser;
+use rustc_hash::{FxHashMap, FxHashSet};
+use serde::Deserialize;
 
 type Kmer = u64;
 type MapType = rustc_hash::FxHashMap<Kmer, u64>;
@@ -313,14 +311,22 @@ fn locus_to_string(locus: &Locus) -> String {
     s
 }
 
-fn write_bcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
+fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
+
+    // Builds on https://github.com/zaeleus/noodles/blob/master/noodles-bcf/examples/bcf_write.rs
+
     let mut file_path = PathBuf::from(&outdir);
-    file_path.push(format!("{}.bcf", sample.name));
+    file_path.push(format!("{}.vcf", sample.name));
     
     // Open the file for writing
+    let mut file = File::create(file_path).expect("Failed to create file");
 
     // Write the header
+    writeln!(file, "##fileformat=VCFv4.2").unwrap();
+    writeln!(file, "##source=snpquest").unwrap();
+    writeln!(file, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{}", sample.name).unwrap();
 
+    // Write the records
     for (i, &snp) in snp_set.snps.iter().enumerate() {
 
         let kmer_string = kmer_to_string(snp, snp_set.k);
@@ -330,25 +336,61 @@ fn write_bcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         let reference = kmer_string.chars().last().unwrap().to_string();
 
         // Construct the alternate alleles
-        let mut alts: String = String::new();
+        // First element is the reference, the rest are the alts
+        let mut alleles: Vec<String> = vec![];
 
         match reference.as_str() {
-            "A" => alts = "CGT".to_string(),
-            "C" => alts = "AGT".to_string(),
-            "G" => alts = "ACT".to_string(),
-            "T" => alts = "ACG".to_string(),
+            "A" => alleles = vec!["A".to_string(), "C".to_string(), "G".to_string(), "T".to_string()],
+            "C" => alleles = vec!["C".to_string(), "A".to_string(), "G".to_string(), "T".to_string()],
+            "G" => alleles = vec!["G".to_string(), "A".to_string(), "C".to_string(), "T".to_string()],
+            "T" => alleles = vec!["T".to_string(), "A".to_string(), "C".to_string(), "G".to_string()],
             _ => panic!("Invalid reference base: {}", reference),
         }
+
+        let alts_string = alleles[1..].join("");
         
         // The ID is the kmer_string with the last character set to X
         let id = kmer_string[0..snp_set.k - 1].to_string() + "X";
 
         // String with the observed variants in this sample in this snp
         let locus = sample.genotype[i];
-        let variants = locus_to_string(&locus);
+        let variants: Vec<char> = locus_to_string(&locus).chars().collect();
+
+        // For each element of variants, get the index in alleles
+
+        let mut variants_numeric: Vec<String> = vec![];
+        for v in variants {
+            let index = alleles.iter().position(|x| x == &v.to_string()).unwrap();
+            variants_numeric.push(index.to_string());
+        }
+
+        // If there are more than two variants, panic
+        if variants_numeric.len() > 2 {
+            panic!("More than two variants at site {}: {}", i, variants_numeric.len());
+        }
+
+        let mut genotype_text = String::new();
+        if variants_numeric.len() == 0 {
+            // It was not called
+            genotype_text = "./.".to_string();
+        } else if variants_numeric.len() == 1 {
+            // Assume it was a homozygote
+            genotype_text = format!("{}/{}", variants_numeric[0], variants_numeric[0]);
+        } else if variants_numeric.len() == 2 {
+            genotype_text = format!("{}/{}", variants_numeric[0], variants_numeric[1]);
+        }
+
+        // Other fields
+        let position = i+1;
+        let chromosome = "1";
 
         // Write the record
-        
+        writeln!(
+            file,
+            // "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{}"
+            "{}\t{}\t{}\t{}\t{}\t30\tPASS\t.\tGT\t{}",
+            chromosome, position, id, reference, alts_string, genotype_text
+        ).unwrap();
     }
 }
 
@@ -507,6 +549,13 @@ fn main() {
         );
     }
     println!("Calling genotypes done.");
+
+    // Write the vcf files
+    print!("Writing vcf files... ");
+    for sample in samples.iter() {
+        write_vcf_from_sample(sample, &snp_set, outdir);
+    }
+    println!("done");
 
     if args.snp_file.is_empty() {
         // Write the snp set to a file
