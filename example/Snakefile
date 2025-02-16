@@ -4,6 +4,8 @@ Generates kmers for samples
 
 configfile: "config_kmers.yaml"
 
+ruleorder: count_kmers > filter_kmers
+
 target_kmers = [21]
 
 rule all:
