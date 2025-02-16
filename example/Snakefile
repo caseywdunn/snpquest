@@ -141,31 +141,32 @@ rule filter_kmers:
         kmers = "output/{sample}_CAGT_k{thisk}.kmers"
     shell:
         """
-        grep -P "^CAGT" {input.kmers} > {output.kmers}
+        # Don't filter on first site. Since these are canonical kmers, that would remove some nucleotides from last position.
+        grep "^.CAGT" {input.kmers} > {output.kmers}
         """
 
 rule run_snpquest:
     input:
         expand("output/{sample}_CAGT_k{thisk}.kmers", sample = config["sample"], thisk = target_kmers)
     output:
-        expand("output_snp/{sample}_CAGT_k{thisk}.vcf", sample = config["sample"], thisk = target_kmers),
+        expand("output_snp/{sample}_k{thisk}.vcf", sample = config["sample"], thisk = target_kmers),
         "output_snp/Physalia.pseudogenome.fasta"
     shell:
         "../target/release/snpquest --outdir output_snp/ --freq-min 1.0 --run-name Physalia --prefix 'CAGT' {input}"
 
 rule bgzip_vcf:
     input:
-        "output_snp/{sample}_CAGT_k{thisk}.vcf"
+        "output_snp/{sample}_k{thisk}.vcf"
     output:
-        "output_snp/{sample}_CAGT_k{thisk}.vcf.gz"
+        "output_snp/{sample}_k{thisk}.vcf.gz"
     shell:
         "bgzip {input}"
 
 rule index_vcf:
     input:
-        "output_snp/{sample}_CAGT_k{thisk}.vcf.gz"
+        "output_snp/{sample}_k{thisk}.vcf.gz"
     output:
-        "output_snp/{sample}_CAGT_k{thisk}.vcf.gz.tbi"
+        "output_snp/{sample}_k{thisk}.vcf.gz.tbi"
     shell:
         "tabix -p vcf {input}"
 
@@ -179,8 +180,8 @@ rule index_fasta:
 
 rule merge_vcf:
     input:
-        tbi = expand("output_snp/{sample}_CAGT_k{thisk}.vcf.gz.tbi", sample = config["sample"], thisk = target_kmers),
-        vcf = expand("output_snp/{sample}_CAGT_k{thisk}.vcf.gz", sample = config["sample"], thisk = target_kmers)
+        tbi = expand("output_snp/{sample}_k{thisk}.vcf.gz.tbi", sample = config["sample"], thisk = target_kmers),
+        vcf = expand("output_snp/{sample}_k{thisk}.vcf.gz", sample = config["sample"], thisk = target_kmers)
     output:
         "output_snp/Physalia_merged.vcf"
     shell:
