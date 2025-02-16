@@ -324,6 +324,8 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
     // Write the header
     writeln!(file, "##fileformat=VCFv4.2").unwrap();
     writeln!(file, "##source=snpquest").unwrap();
+    writeln!(file, "##contig=<ID=1>").unwrap(); // Add contig definition for chromosome 1
+    writeln!(file, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">").unwrap();
     writeln!(file, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{}", sample.name).unwrap();
 
     // Write the records
@@ -347,7 +349,7 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
             _ => panic!("Invalid reference base: {}", reference),
         }
 
-        let alts_string = alleles[1..].join("");
+        let alts_string = alleles[1..].join(",");
         
         // The ID is the kmer_string with the last character set to X
         let id = kmer_string[0..snp_set.k - 1].to_string() + "X";
@@ -370,15 +372,13 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         }
 
         let mut genotype_text = String::new();
-        if variants_numeric.len() == 0 {
-            // It was not called
-            genotype_text = "./.".to_string();
-        } else if variants_numeric.len() == 1 {
-            // Assume it was a homozygote
-            genotype_text = format!("{}/{}", variants_numeric[0], variants_numeric[0]);
-        } else if variants_numeric.len() == 2 {
-            genotype_text = format!("{}/{}", variants_numeric[0], variants_numeric[1]);
-        }
+        // Construct the genotype string
+        let genotype_text = match variants_numeric.len() {
+            0 => "./.".to_string(), // Not called
+            1 => format!("{}/{}", variants_numeric[0], variants_numeric[0]), // Homozygote
+            2 => format!("{}/{}", variants_numeric[0], variants_numeric[1]), // Heterozygote
+            _ => unreachable!(),
+        };
 
         // Other fields
         let position = i+1;
