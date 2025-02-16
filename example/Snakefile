@@ -10,8 +10,8 @@ rule all:
     input:
         expand("output/{sample}_k{thisk}.kmers", sample = config["sample"], thisk = target_kmers),
         expand("output/{sample}_CAGT_k{thisk}.kmers", sample=config["sample"], thisk=target_kmers),
-        "Physalia_merged.beagle.gz",
-        "pca_output.mafs"
+        "output_snp/Physalia_merged.beagle.gz",
+        "output_snp/pca_output.mafs"
 
 rule decompress_reads:
     input:
