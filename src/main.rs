@@ -312,12 +312,9 @@ fn locus_to_string(locus: &Locus) -> String {
 }
 
 fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
-
-    // Builds on https://github.com/zaeleus/noodles/blob/master/noodles-bcf/examples/bcf_write.rs
-
     let mut file_path = PathBuf::from(&outdir);
     file_path.push(format!("{}.vcf", sample.name));
-    
+
     // Open the file for writing
     let mut file = File::create(file_path).expect("Failed to create file");
 
@@ -330,27 +327,22 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
 
     // Write the records
     for (i, &snp) in snp_set.snps.iter().enumerate() {
-
         let kmer_string = kmer_to_string(snp, snp_set.k);
 
         // The last character is the major variant, which we will use as the ref
-        // The other three are the alt alleles
         let reference = kmer_string.chars().last().unwrap().to_string();
 
         // Construct the alternate alleles
-        // First element is the reference, the rest are the alts
-        let mut alleles: Vec<String> = vec![];
+        // The reference allele is always at index 0, and the alternates follow in a consistent order
+        let alleles = vec!["A".to_string(), "C".to_string(), "G".to_string(), "T".to_string()];
+        let ref_index = alleles.iter().position(|x| x == &reference).unwrap();
 
-        match reference.as_str() {
-            "A" => alleles = vec!["A".to_string(), "C".to_string(), "G".to_string(), "T".to_string()],
-            "C" => alleles = vec!["C".to_string(), "A".to_string(), "G".to_string(), "T".to_string()],
-            "G" => alleles = vec!["G".to_string(), "A".to_string(), "C".to_string(), "T".to_string()],
-            "T" => alleles = vec!["T".to_string(), "A".to_string(), "C".to_string(), "G".to_string()],
-            _ => panic!("Invalid reference base: {}", reference),
-        }
+        // Remove the reference allele from the alternates
+        let mut alts = alleles.clone();
+        alts.remove(ref_index);
 
-        let alts_string = alleles[1..].join(",");
-        
+        let alts_string = alts.join(",");
+
         // The ID is the kmer_string with the last character set to X
         let id = kmer_string[0..snp_set.k - 1].to_string() + "X";
 
@@ -358,20 +350,23 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         let locus = sample.genotype[i];
         let variants: Vec<char> = locus_to_string(&locus).chars().collect();
 
-        // For each element of variants, get the index in alleles
-
-        let mut variants_numeric: Vec<String> = vec![];
-        for v in variants {
-            let index = alleles.iter().position(|x| x == &v.to_string()).unwrap();
-            variants_numeric.push(index.to_string());
-        }
+        // Map variants to their corresponding allele indices
+        let variants_numeric: Vec<String> = variants
+            .iter()
+            .map(|v| {
+                alleles
+                    .iter()
+                    .position(|x| x == &v.to_string())
+                    .unwrap_or_else(|| panic!("Invalid variant: {}", v))
+                    .to_string()
+            })
+            .collect();
 
         // If there are more than two variants, panic
         if variants_numeric.len() > 2 {
             panic!("More than two variants at site {}: {}", i, variants_numeric.len());
         }
 
-        let mut genotype_text = String::new();
         // Construct the genotype string
         let genotype_text = match variants_numeric.len() {
             0 => "./.".to_string(), // Not called
@@ -381,13 +376,12 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         };
 
         // Other fields
-        let position = i+1;
+        let position = i + 1;
         let chromosome = "1";
 
         // Write the record
         writeln!(
             file,
-            // "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{}"
             "{}\t{}\t{}\t{}\t{}\t30\tPASS\t.\tGT\t{}",
             chromosome, position, id, reference, alts_string, genotype_text
         ).unwrap();
