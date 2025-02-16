@@ -152,7 +152,7 @@ rule run_snpquest:
         expand("output_snp/{sample}_k{thisk}.vcf", sample = config["sample"], thisk = target_kmers),
         "output_snp/Physalia.pseudogenome.fasta"
     shell:
-        "../target/release/snpquest --outdir output_snp/ --freq-min 1.0 --run-name Physalia --prefix 'CAGT' {input}"
+        "../target/release/snpquest --outdir output_snp/ --freq-min 1.0 --run-name Physalia {input}"
 
 rule bgzip_vcf:
     input:
