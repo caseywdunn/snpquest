@@ -1,0 +1,33 @@
+base_read_dir: /gpfs/ycga/work/dunn/sequences/illumina/
+
+sample:
+  Physalia_110254:
+    reads:
+      - physalia_novaseq_2023/Sample_YPM110254_102_091/
+  Physalia_110558:
+    reads:
+      - physalia_novaseq3_2023/Sample_110558_129_064/
+  Physalia_110557:
+    reads:
+      - physalia_novaseq3_2023/Sample_110557_141_052/
+  Physalia_110716:
+    reads:
+      - physalia_novaseq4_2023/Sample_110716_148_045/
+  Physalia_110777:    
+    reads:
+      - physalia_novaseq4_2023/Sample_110777_112_081/
+  Physalia_110828:
+    reads:
+      - physalia_novaseq5_2023/Sample_110828_159_034/
+  Physalia_110830:
+    reads:
+      - physalia_novaseq5_2023/Sample_110830_165_028/
+  Physalia_110931:
+    reads:
+      - physalia_novaseq6_2023/Sample_110931_098_095/
+  Physalia_110943:
+    reads:
+      - physalia_novaseq7_2023/Sample_110943_143_050/
+  Physalia_111156:
+    reads:
+      - physalia_novaseq8_2023/Sample_111156_147_046/
