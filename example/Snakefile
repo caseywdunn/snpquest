@@ -10,9 +10,20 @@ target_kmers = [21, 25, 31]
 
 rule all:
     input:
-        expand("output/{sample}_k{thisk}.kmers", sample = config["sample"], thisk = target_kmers),
+        # Kmers
+        expand("output/{sample}_k{thisk}.kmers", sample=config["sample"], thisk=target_kmers),
         expand("output/{sample}_CAGT_k{thisk}.kmers", sample=config["sample"], thisk=target_kmers),
-        expand("output_snp/pca_output_k{thisk}.mafs", thisk=target_kmers)
+        # SNPQuest Outputs
+        expand("output_snp/{sample}_k{thisk}.vcf.gz", sample=config["sample"], thisk=target_kmers),
+        expand("output_snp/{sample}_k{thisk}.vcf.gz.tbi", sample=config["sample"], thisk=target_kmers),
+        # Merged VCFs
+        expand("output_snp/Physalia_merged_k{thisk}.vcf", thisk=target_kmers),
+        # ANGSD Outputs
+        expand("output_snp/pca_output_k{thisk}.mafs", thisk=target_kmers),
+        # Reference FASTA
+        "output_snp/Physalia.pseudogenome.fasta",
+        "output_snp/Physalia.pseudogenome.fasta.fai"
+
 
 rule decompress_reads:
     input:
@@ -87,7 +98,7 @@ rule count_reads:
         num_nucleotides_raw=$(cat {input.R1} {input.R2} | awk '{{if(NR%4==2) sum+=length($0)}} END {{print sum}}' )
 
         sum=0
-        num_lines_trimmed=$(cat {intput.R1_paired} | wc -l)
+        num_lines_trimmed=$(cat {input.R1_paired} | wc -l)
         num_reads_trimmed=$(($num_lines_trimmed / 4))
         num_nucleotides_trimmed=$(cat {input.R1_paired} {input.R2_paired} | awk '{{if(NR%4==2) sum+=length($0)}} END {{print sum}}' )
 
