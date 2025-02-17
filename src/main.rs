@@ -467,14 +467,31 @@ fn main() {
         // Iterate over the lines of the file
         for line in reader.lines() {
             line_n += 1;
-            let line = line.unwrap();
-            let (kmer_string, count_str) = line.split_once(' ').unwrap();
-            let count: u64 = count_str.parse().unwrap();
-
-            // continue if the kmer count is less than the minimum count
-            if count < args.min_count as u64 {
-                continue;
-            }
+            let line = match line {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("Error reading line {}: {}", line_n, e);
+                    continue;
+                }
+            };
+        
+            // Attempt to split the line into two fields
+            let (kmer_string, count_str) = match line.split_once(' ') {
+                Some((kmer, count)) => (kmer, count),
+                None => {
+                    eprintln!("Invalid line format at line {}: {}", line_n, line);
+                    continue;
+                }
+            };
+        
+            // Attempt to parse the count
+            let count: u64 = match count_str.parse() {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Invalid count at line {}: {} (error: {})", line_n, count_str, e);
+                    continue;
+                }
+            };
 
             // continue if the kmer does not start with the prefix
             if !args.prefix.is_empty() && !kmer_string.starts_with(&args.prefix) {
