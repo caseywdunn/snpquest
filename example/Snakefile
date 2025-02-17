@@ -153,9 +153,12 @@ rule filter_kmers:
 
 rule run_snpquest:
     input:
-        expand("output/{sample}_CAGT_k{thisk}.kmers", sample=config["sample"], thisk=target_kmers)
+        # Expand all samples for a given k
+        kmers = expand("output/{sample}_CAGT_k{thisk}.kmers", sample=config["sample"], thisk="{thisk}")
     output:
-        expand("output_snp/{sample}_k{thisk}.vcf", sample=config["sample"], thisk=target_kmers),
+        # Expand all corresponding outputs
+        vcf_files = expand("output_snp/{sample}_k{thisk}.vcf", sample=config["sample"], thisk="{thisk}"),
+        # Single pseudogenome file shared across runs
         "output_snp/Physalia.pseudogenome.fasta"
     log:
         "logs/snpquest/snpquest_{thisk}.log"
@@ -165,8 +168,11 @@ rule run_snpquest:
         thisk = lambda wildcards: wildcards.thisk
     shell:
         """
-        ../target/release/snpquest --outdir output_snp/ --freq-min 1.0 --run-name Physalia_k{thisk} {input} >> {log} 2>&1
+        echo "[INFO $(date)] Starting SNPQuest with k={params.thisk}" >> {log}
+        ../target/release/snpquest --outdir output_snp/ --freq-min 1.0 --run-name Physalia_k{params.thisk} {input.kmers} >> {log} 2>&1
+        echo "[INFO $(date)] Completed SNPQuest with k={params.thisk}" >> {log}
         """
+
 
 rule bgzip_vcf:
     input:
