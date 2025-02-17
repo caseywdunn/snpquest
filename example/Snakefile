@@ -155,12 +155,12 @@ rule run_snpquest:
     input:
         kmers = expand("output/{sample}_CAGT_k{thisk}.kmers", sample=config["sample"], thisk="{thisk}")
     output:
-        expand("output_snp/{sample}_k{thisk}.vcf", sample=config["sample"], thisk="{thisk}"),
-        "output_snp/Physalia.pseudogenome.fasta"
+        vcf = "output_snp/Physalia_k{thisk}.vcf",  # One VCF per k value
+        fasta = "output_snp/Physalia.pseudogenome.fasta"
     log:
-        "logs/snpquest/snpquest_{thisk}.log"
+        "logs/snpquest/snpquest_k{thisk}.log"
     benchmark:
-        "benchmarks/snpquest/snpquest_{thisk}.txt"
+        "benchmarks/snpquest/snpquest_k{thisk}.txt"
     params:
         thisk = lambda wildcards: wildcards.thisk
     shell:
