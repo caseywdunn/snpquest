@@ -6,13 +6,13 @@ configfile: "config_kmers.yaml"
 
 ruleorder: count_kmers > filter_kmers
 
-target_kmers = [21]
+target_kmers = [21, 25, 31]
 
 rule all:
     input:
         expand("output/{sample}_k{thisk}.kmers", sample = config["sample"], thisk = target_kmers),
         expand("output/{sample}_CAGT_k{thisk}.kmers", sample=config["sample"], thisk=target_kmers),
-        "output_snp/pca_output.mafs"
+        expand("output_snp/pca_output_k{thisk}.mafs", thisk=target_kmers)
 
 rule decompress_reads:
     input:
@@ -39,9 +39,9 @@ rule trim_reads:
         R1 = "reads/{sample}_all_R1.fastq",
         R2 = "reads/{sample}_all_R2.fastq"
     output:
-        R1_paired   = temp("reads/{sample}_trimmed_paired_R1.fastq"),
+        R1_paired   = "reads/{sample}_trimmed_paired_R1.fastq",
         R1_unpaired = temp("reads/{sample}_trimmed_unpaired_R1.fastq"),
-        R2_paired   = temp("reads/{sample}_trimmed_paired_R2.fastq"),
+        R2_paired   = "reads/{sample}_trimmed_paired_R2.fastq",
         R2_unpaired = temp("reads/{sample}_trimmed_unpaired_R2.fastq")
     group:
         lambda wildcards: f"sample_{wildcards.sample}"
@@ -51,11 +51,6 @@ rule trim_reads:
     log: "logs/trimmomatic/trimmomatic_{sample}.log"
     shell:
         """
-        
-        # Multiple operations are combined into a single rule here to minimize the number of files on disk at any point in time.
-        
-        
-
         # Trim reads
         echo ">PrefixPE/1\nTACACTCTTTCCCTACACGACGCTCTTCCGATCT\n>PrefixPE/2\nGTGACTGGAGTTCAGACGTGTGCTCTTCCGATCT" > TruSeq3-PE.fa
         trimmomatic PE \
@@ -147,12 +142,21 @@ rule filter_kmers:
 
 rule run_snpquest:
     input:
-        expand("output/{sample}_CAGT_k{thisk}.kmers", sample = config["sample"], thisk = target_kmers)
+        expand("output/{sample}_CAGT_k{thisk}.kmers", sample=config["sample"], thisk=target_kmers)
     output:
-        expand("output_snp/{sample}_k{thisk}.vcf", sample = config["sample"], thisk = target_kmers),
+        expand("output_snp/{sample}_k{thisk}.vcf", sample=config["sample"], thisk=target_kmers),
         "output_snp/Physalia.pseudogenome.fasta"
+    log:
+        "logs/snpquest/snpquest_{wildcards.thisk}.log"
+    benchmark:
+        "benchmarks/snpquest/snpquest_{wildcards.thisk}.txt"
+    params:
+        thisk = lambda wildcards: wildcards.thisk
     shell:
-        "../target/release/snpquest --outdir output_snp/ --freq-min 1.0 --run-name Physalia {input}"
+        """
+        ../target/release/snpquest --outdir output_snp/ --freq-min 1.0 --run-name Physalia {input} >> {log} 2>&1
+        """
+
 
 rule bgzip_vcf:
     input:
@@ -183,21 +187,24 @@ rule merge_vcf:
         tbi = expand("output_snp/{sample}_k{thisk}.vcf.gz.tbi", sample = config["sample"], thisk = target_kmers),
         vcf = expand("output_snp/{sample}_k{thisk}.vcf.gz", sample = config["sample"], thisk = target_kmers)
     output:
-        "output_snp/Physalia_merged.vcf"
+        "output_snp/Physalia_merged_k{thisk}.vcf"
     shell:
         "bcftools merge {input.vcf} -o {output}"
 
 rule run_angsd:
     input:
-        vcf = "output_snp/Physalia_merged.vcf"
+        vcf = "output_snp/Physalia_merged_k{thisk}.vcf"
     output:
-        "output_snp/pca_output.mafs"
+        "output_snp/pca_output_k{thisk}.mafs"
+    params:
+        thisk = lambda wildcards: wildcards.thisk
+    log:
+        "logs/angsd/angsd_{wildcards.thisk}.log"
     shell:
         """
-        
         angsd \
           -vcf-gl {input.vcf} \
           -doMajorMinor 1 \
           -doMaf 1 \
-          -out output_snp/pca_output \
+          -out output_snp/pca_output_k{params.thisk} >> {log} 2>&1
         """
