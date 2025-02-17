@@ -153,22 +153,27 @@ rule filter_kmers:
 
 rule run_snpquest:
     input:
-        kmers = expand("output/{sample}_CAGT_k{thisk}.kmers", sample=config["sample"], thisk="{thisk}")
+        # Gather kmers for all samples for a specific k
+        lambda wildcards: expand("output/{sample}_CAGT_k{thisk}.kmers", sample=config["sample"], thisk=wildcards.thisk)
     output:
-        vcf = "output_snp/Physalia_k{thisk}.vcf",  # One VCF per k value
-        fasta = "output_snp/Physalia.pseudogenome.fasta"
+        # Generate VCF files for all samples for a specific k
+        expand("output_snp/{sample}_k{thisk}.vcf", sample=config["sample"], thisk="{thisk}"),
+        "output_snp/Physalia.pseudogenome.fasta"
     log:
-        "logs/snpquest/snpquest_k{thisk}.log"
+        "logs/snpquest/snpquest_{thisk}.log"
     benchmark:
-        "benchmarks/snpquest/snpquest_k{thisk}.txt"
+        "benchmarks/snpquest/snpquest_{thisk}.txt"
     params:
         thisk = lambda wildcards: wildcards.thisk
+    wildcard_constraints:
+        thisk = "|".join(str(k) for k in target_kmers)
     shell:
         """
-        echo "[INFO $(date)] Starting SNPQuest with k={params.thisk}" >> {log}
+        echo "[INFO $(date)] Starting SNPQuest for k={params.thisk}" >> {log}
         ../target/release/snpquest --outdir output_snp/ --freq-min 1.0 --run-name Physalia_k{params.thisk} {input} >> {log} 2>&1
-        echo "[INFO $(date)] Completed SNPQuest with k={params.thisk}" >> {log}
+        echo "[INFO $(date)] Completed SNPQuest for k={params.thisk}" >> {log}
         """
+
 
 
 
