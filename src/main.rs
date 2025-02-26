@@ -286,7 +286,7 @@ fn discover_snp_sites(
         k,
         min_count: 2,
         ploidy,
-        prefix: prefix,
+        prefix,
         snps,
     }
 }
@@ -307,7 +307,7 @@ fn kmer_to_string(kmer: Kmer, k: usize) -> String {
 }
 
 fn snp_caller(snp_set: &SnpSet, sample: &mut Sample) {
-    let mask: Kmer = !0u64 & !0b11;
+    let mask: Kmer = !0b11;
     let kmer_set: FxHashSet<Kmer> = sample.kmers.iter().copied().collect();
     sample.genotype.clear();
 
@@ -436,25 +436,25 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         // homozygous major
         if variants.len() == 1 && variants[0] == reference.chars().next().unwrap() {
             alts_string = ".".to_string();
-            genotype_string = format!("0/0:10");
+            genotype_string = "0/0:10".to_string();
         } 
         // There is a single variant, and it is different from the reference
         // homozygous minor
         else if variants.len() == 1 && variants[0] != reference.chars().next().unwrap() {
             alts_string = variants[0].to_string();
-            genotype_string = format!("1/1:10");
+            genotype_string = "1/1:10".to_string();
         }
         // There are two variants, one is the same as the reference
         // heterozygous major/minor
         else if variants.len() == 2 && variants[0] == reference.chars().next().unwrap() {
             alts_string = variants[1].to_string();
-            genotype_string = format!("0/1:10,10,100");
+            genotype_string = "0/1:10,10,100".to_string();
         }
         // There are two variants, neither is the same as the reference
         // heterozygous minor/minor
         else if variants.len() == 2 && variants[0] != reference.chars().next().unwrap() {
             alts_string = format!("{},{}", variants[0], variants[1]);
-            genotype_string = format!("1/2:100,10,10");
+            genotype_string = "1/2:100,10,10".to_string();
         }
         // Unsupported case
         else {
@@ -485,8 +485,7 @@ fn write_pseudogenome (snp_set: &SnpSet, outdir: &str, run_name: String) {
     writeln!(file, ">1").unwrap();
 
     // Write the sequence
-    let mut i = 0;
-    for snp in &snp_set.snps {
+    for (i, snp) in snp_set.snps.iter().enumerate() {
         let kmer_string = kmer_to_string(*snp, snp_set.k);
         let major_variant = kmer_string.chars().last().unwrap();
         // Adjust the major variant if the index is odd
@@ -502,7 +501,6 @@ fn write_pseudogenome (snp_set: &SnpSet, outdir: &str, run_name: String) {
             major_variant
         };
         write!(file, "{}", major_variant).unwrap();
-        i += 1;
     }
 }
 
@@ -514,8 +512,7 @@ fn snp_major_nucleotide_count(snp_set: &SnpSet, adjusted: bool) -> NucleotideCou
         t: 0,
     };
 
-    let mut i = 0;
-    for snp in &snp_set.snps {
+    for (i, snp) in snp_set.snps.iter().enumerate() {
         let kmer_string = kmer_to_string(*snp, snp_set.k);
         let major_variant = kmer_string.chars().last().unwrap();
 
@@ -538,7 +535,6 @@ fn snp_major_nucleotide_count(snp_set: &SnpSet, adjusted: bool) -> NucleotideCou
             'T' => counts.t += 1,
             _ => panic!("Invalid character in kmer string: {}", major_variant),
         }
-        i += 1;
     }
 
     counts
@@ -747,11 +743,11 @@ fn main() {
 
     // get pi
     let counts = snp_major_nucleotide_count(&snp_set, false);
-    let (a_freq, c_freq, g_freq, t_freq, total) = counts.get_pi();
+    let (a_freq, c_freq, g_freq, t_freq, _total) = counts.get_pi();
     println!("Unadjusted major variant pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",  a_freq, c_freq, g_freq, t_freq);
 
     let counts = snp_major_nucleotide_count(&snp_set, true);
-    let (a_freq, c_freq, g_freq, t_freq, total) = counts.get_pi();
+    let (a_freq, c_freq, g_freq, t_freq, _total) = counts.get_pi();
     println!("Adjusted major variant pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",  a_freq, c_freq, g_freq, t_freq);
     
 
