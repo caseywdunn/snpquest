@@ -44,6 +44,48 @@ type Variants = FxHashMap<Kmer, SampleVariantCounts>;
 // These can be summed, so for example 0011 is A and C observed
 type Locus = u8;
 
+
+fn locus_to_base(locus: Locus) -> String {
+    match locus {
+        0b0001 => "A".to_string(),
+        0b0010 => "C".to_string(),
+        0b0100 => "G".to_string(),
+        0b1000 => "T".to_string(),
+        0b0011 => "M".to_string(),
+        0b0101 => "R".to_string(),
+        0b1001 => "W".to_string(),
+        0b0110 => "S".to_string(),
+        0b1010 => "Y".to_string(),
+        0b1100 => "K".to_string(),
+        _ => panic!("Invalid Locus value: {}", locus),
+        
+    }
+}
+
+fn reverse_complement(seq: &str) -> String {
+    seq.chars()
+        .rev()
+        .map(|c| match c {
+            'A' => 'T',
+            'T' => 'A',
+            'G' => 'C',
+            'C' => 'G',
+            'Y' => 'R', // C or T
+            'R' => 'Y', // A or G
+            'S' => 'S', // C or G
+            'W' => 'W', // A or T
+            'K' => 'M', // G or T
+            'M' => 'K', // A or C
+            'B' => 'V', // C or G or T
+            'V' => 'B', // A or C or G
+            'D' => 'H', // A or G or T
+            'H' => 'D', // A or C or T
+            'N' => 'N', // A or C or G or T
+            _ => panic!("Invalid nucleotide: {}", c),
+        })
+        .collect()
+}
+
 type Genotype = Vec<Locus>;
 
 #[derive(Clone)]
@@ -496,6 +538,32 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
     }
 }
 
+fn write_fasta_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
+    let mut file_path = PathBuf::from(&outdir);
+    file_path.push(format!("{}.fasta", sample.name));
+
+    // Open the file for writing
+    let mut file = File::create(file_path).expect("Failed to create file");
+
+    // Write the header with sample name
+    writeln!(file, ">{}", sample.name).unwrap();
+    
+    // Write the sequence
+    // Reverse complement the sequence if the index is odd
+    // If homozygous, write the resolved base
+    // If heterozygous, write the ambiguous base
+    for (i, &snp) in snp_set.snps.iter().enumerate() {
+        let locus = sample.genotype[i];
+        let mut base = locus_to_base(locus);
+        // Adjust the base if the index is odd
+        if i % 2 == 1 {
+            base = reverse_complement(&base);
+        }
+        write!(file, "{}", base).unwrap();
+    }
+
+}
+
 fn write_pseudogenome(snp_set: &SnpSet, outdir: &str, run_name: String) {
     let mut file_path = PathBuf::from(&outdir);
     file_path.push(format!("{}.pseudogenome.fasta", run_name));
@@ -799,9 +867,10 @@ fn main() {
     );
 
     // Write the vcf files
-    print!("Writing vcf files... ");
+    print!("Writing vcf and fasta files... ");
     for sample in samples.iter() {
         write_vcf_from_sample(sample, &snp_set, outdir);
+        write_fasta_from_sample(sample, &snp_set, outdir);
     }
     println!("done");
 
