@@ -1,8 +1,8 @@
 use std::fs::File;
 use std::io::BufRead;
 use std::io::{Read, Write};
-use std::path::PathBuf;
 use std::path::Path;
+use std::path::PathBuf;
 use std::vec;
 
 use clap::Parser;
@@ -336,7 +336,7 @@ fn snp_caller(snp_set: &SnpSet, sample: &mut Sample) {
 
 fn locus_to_string(locus: &Locus) -> String {
     let mut s = String::new();
-    
+
     if locus & 0b0001 > 0 {
         s.push('A');
     }
@@ -366,9 +366,22 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
     writeln!(file, "##fileformat=VCFv4.2").unwrap();
     writeln!(file, "##source=snpquest").unwrap();
     writeln!(file, "##contig=<ID=1>").unwrap(); // Add contig definition for chromosome 1
-    writeln!(file, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">").unwrap();
-    writeln!(file, "##FORMAT=<ID=PL,Number=G,Type=Integer,Description=\"Phred-scaled genotype likelihoods\">").unwrap();
-    writeln!(file, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{}", sample.name).unwrap();
+    writeln!(
+        file,
+        "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">"
+    )
+    .unwrap();
+    writeln!(
+        file,
+        "##FORMAT=<ID=PL,Number=G,Type=Integer,Description=\"Phred-scaled genotype likelihoods\">"
+    )
+    .unwrap();
+    writeln!(
+        file,
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{}",
+        sample.name
+    )
+    .unwrap();
 
     // Write the records
     for (i, &snp) in snp_set.snps.iter().enumerate() {
@@ -387,7 +400,6 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
                 _ => panic!("Invalid character in kmer string: {}", reference),
             };
             reference = ref_char.to_string();
-            
         }
 
         // The ID is the kmer_string with the last character set to X
@@ -425,7 +437,11 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
 
         // If there are more than two variants, panic
         if variants.len() > 2 {
-            panic!("More than two variants at site, ploidy > 2 not yet supported {}: {}", i, variants.len());
+            panic!(
+                "More than two variants at site, ploidy > 2 not yet supported {}: {}",
+                i,
+                variants.len()
+            );
         }
 
         // Construct the alt and genotype string
@@ -437,7 +453,7 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         if variants.len() == 1 && variants[0] == reference.chars().next().unwrap() {
             alts_string = ".".to_string();
             genotype_string = "0/0:10".to_string();
-        } 
+        }
         // There is a single variant, and it is different from the reference
         // homozygous minor
         else if variants.len() == 1 && variants[0] != reference.chars().next().unwrap() {
@@ -458,7 +474,12 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         }
         // Unsupported case
         else {
-            panic!("Unexpected case!\n  kmer_string:{}\n  ref:{}\n  variants:{}", kmer_string, reference, variants.iter().collect::<String>());
+            panic!(
+                "Unexpected case!\n  kmer_string:{}\n  ref:{}\n  variants:{}",
+                kmer_string,
+                reference,
+                variants.iter().collect::<String>()
+            );
         }
 
         // Other fields
@@ -470,11 +491,12 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
             file,
             "{}\t{}\t{}\t{}\t{}\t30\tPASS\t.\tGT:PL\t{}",
             chromosome, position, id, reference, alts_string, genotype_string
-        ).unwrap();
+        )
+        .unwrap();
     }
 }
 
-fn write_pseudogenome (snp_set: &SnpSet, outdir: &str, run_name: String) {
+fn write_pseudogenome(snp_set: &SnpSet, outdir: &str, run_name: String) {
     let mut file_path = PathBuf::from(&outdir);
     file_path.push(format!("{}.pseudogenome.fasta", run_name));
 
@@ -606,7 +628,7 @@ fn main() {
                     continue;
                 }
             };
-        
+
             // Attempt to split the line into two fields
             let (kmer_string, count_str) = match line.split_once(' ') {
                 Some((kmer, count)) => (kmer, count),
@@ -615,12 +637,15 @@ fn main() {
                     continue;
                 }
             };
-        
+
             // Attempt to parse the count
             let count: u64 = match count_str.parse() {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("Invalid count at line {}: {} (error: {})", line_n, count_str, e);
+                    eprintln!(
+                        "Invalid count at line {}: {} (error: {})",
+                        line_n, count_str, e
+                    );
                     continue;
                 }
             };
@@ -644,7 +669,7 @@ fn main() {
 
         nuc_counts_all.add(&nuc_counts_sample);
         let (a_freq, c_freq, g_freq, t_freq, total) = nuc_counts_sample.get_pi();
-        
+
         println!("  Number of processed kmers: {}", line_n);
         println!("  Number of ingested nucleotides: {}", total);
         println!("  Number of ingested kmers: {}", kmer_counts.len());
@@ -652,8 +677,18 @@ fn main() {
             "  Total count of ingested kmers: {}",
             kmer_counts.values().sum::<u64>()
         );
-        println!("  Sample {} kmer pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T", sample_name,  a_freq, c_freq, g_freq, t_freq);
-        println!("  Sample {} expected genome pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T", sample_name,  (a_freq+t_freq)/2.0, (c_freq+g_freq)/2.0, (c_freq+g_freq)/2.0, (a_freq+t_freq)/2.0);
+        println!(
+            "  Sample {} kmer pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",
+            sample_name, a_freq, c_freq, g_freq, t_freq
+        );
+        println!(
+            "  Sample {} expected genome pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",
+            sample_name,
+            (a_freq + t_freq) / 2.0,
+            (c_freq + g_freq) / 2.0,
+            (c_freq + g_freq) / 2.0,
+            (a_freq + t_freq) / 2.0
+        );
         println!("  kmer length: {}", k);
 
         // remove the most common kmers
@@ -692,8 +727,17 @@ fn main() {
     }
 
     let (a_freq, c_freq, g_freq, t_freq, total) = nuc_counts_all.get_pi();
-    println!("  All kmer pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",  a_freq, c_freq, g_freq, t_freq);
-    println!("  All expected genome pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",  (a_freq+t_freq)/2.0, (c_freq+g_freq)/2.0, (c_freq+g_freq)/2.0, (a_freq+t_freq)/2.0);
+    println!(
+        "  All kmer pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",
+        a_freq, c_freq, g_freq, t_freq
+    );
+    println!(
+        "  All expected genome pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",
+        (a_freq + t_freq) / 2.0,
+        (c_freq + g_freq) / 2.0,
+        (c_freq + g_freq) / 2.0,
+        (a_freq + t_freq) / 2.0
+    );
     println!("  Total number of ingested nucleotides: {}", total);
 
     println!("Ingesting samples done, time: {:?}", start.elapsed());
@@ -721,8 +765,6 @@ fn main() {
         println!("Discovering snp sites...");
         snp_set = discover_snp_sites(&samples, k, args.ploidy, args.freq_min, args.prefix);
         println!("Discovering snp sites done, time: {:?}", start.elapsed());
-
-
     }
     println!("Number of snps: {}", snp_set.snps.len());
 
@@ -744,12 +786,17 @@ fn main() {
     // get pi
     let counts = snp_major_nucleotide_count(&snp_set, false);
     let (a_freq, c_freq, g_freq, t_freq, _total) = counts.get_pi();
-    println!("Unadjusted major variant pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",  a_freq, c_freq, g_freq, t_freq);
+    println!(
+        "Unadjusted major variant pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",
+        a_freq, c_freq, g_freq, t_freq
+    );
 
     let counts = snp_major_nucleotide_count(&snp_set, true);
     let (a_freq, c_freq, g_freq, t_freq, _total) = counts.get_pi();
-    println!("Adjusted major variant pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",  a_freq, c_freq, g_freq, t_freq);
-    
+    println!(
+        "Adjusted major variant pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",
+        a_freq, c_freq, g_freq, t_freq
+    );
 
     // Write the vcf files
     print!("Writing vcf files... ");
