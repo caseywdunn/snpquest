@@ -561,6 +561,7 @@ fn write_fasta_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         }
         write!(file, "{}", base).unwrap();
     }
+    write!(file, "\n").unwrap();
 
 }
 
