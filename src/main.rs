@@ -12,6 +12,10 @@ use serde::Deserialize;
 type Kmer = u64;
 type MapType = rustc_hash::FxHashMap<Kmer, u64>;
 
+// Notes
+// - To adjust for nucleotide biases in the canonical variant, we will take the reverse
+// complement of the variant site of odd variant kmers
+
 // A nested datatype to hold count of snp variation:
 // - snp site, kmer with the last two bits masked to 0.
 // - a vector of length n where n is the number of samples
@@ -59,6 +63,46 @@ struct SnpSet {
     ploidy: usize,
     prefix: String,
     snps: Vec<Kmer>,
+}
+
+struct NucleotideCounts {
+    a: u64,
+    c: u64,
+    g: u64,
+    t: u64,
+}
+
+impl NucleotideCounts {
+    fn add(&mut self, other: &NucleotideCounts) {
+        self.a += other.a;
+        self.c += other.c;
+        self.g += other.g;
+        self.t += other.t;
+    }
+
+    fn get_pi(&self) -> (f64, f64, f64, f64, u64) {
+        let total = self.a + self.c + self.g + self.t;
+        if total == 0 {
+            return (0.0, 0.0, 0.0, 0.0, 0);
+        }
+        let a_freq = self.a as f64 / total as f64;
+        let c_freq = self.c as f64 / total as f64;
+        let g_freq = self.g as f64 / total as f64;
+        let t_freq = self.t as f64 / total as f64;
+        (a_freq, c_freq, g_freq, t_freq, total)
+    }
+
+    fn ingest_kmer_string(&mut self, kmer_string: &str, count: u64) {
+        for c in kmer_string.chars() {
+            match c {
+                'A' => self.a += count,
+                'C' => self.c += count,
+                'G' => self.g += count,
+                'T' => self.t += count,
+                _ => panic!("Invalid character in kmer string: {}", c),
+            }
+        }
+    }
 }
 
 /// A collection of kmer counting and analysis tools
@@ -331,7 +375,20 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         let kmer_string = kmer_to_string(snp, snp_set.k);
 
         // The last character is the major variant, which we will use as the ref
-        let reference = kmer_string.chars().last().unwrap().to_string();
+        let mut reference = kmer_string.chars().last().unwrap().to_string();
+
+        // If the kmer is odd, take the reverse complement
+        if i % 2 == 1 {
+            let ref_char = match reference.chars().next().unwrap() {
+                'A' => 'T',
+                'C' => 'G',
+                'G' => 'C',
+                'T' => 'A',
+                _ => panic!("Invalid character in kmer string: {}", reference),
+            };
+            reference = ref_char.to_string();
+            
+        }
 
         // The ID is the kmer_string with the last character set to X
         let id = kmer_string[0..snp_set.k - 1].to_string() + "X";
@@ -340,7 +397,20 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         let locus = sample.genotype[i];
         let mut variants: Vec<char> = locus_to_string(&locus).chars().collect();
 
-        // If there are more than one variants, sort them according to the follong criteria:
+        // Take reverse complement of the variants if the index is odd
+        if i % 2 == 1 {
+            for j in 0..variants.len() {
+                variants[j] = match variants[j] {
+                    'A' => 'T',
+                    'C' => 'G',
+                    'G' => 'C',
+                    'T' => 'A',
+                    _ => panic!("Invalid character in kmer string: {}", variants[j]),
+                };
+            }
+        }
+
+        // If there are more than one variants, sort them according to the following criteria:
         // - If one is the same as the reference, it is first
         // - All other variants are sorted in alphabetical order
         variants.sort_by(|a, b| {
@@ -415,11 +485,63 @@ fn write_pseudogenome (snp_set: &SnpSet, outdir: &str, run_name: String) {
     writeln!(file, ">1").unwrap();
 
     // Write the sequence
+    let mut i = 0;
     for snp in &snp_set.snps {
         let kmer_string = kmer_to_string(*snp, snp_set.k);
         let major_variant = kmer_string.chars().last().unwrap();
+        // Adjust the major variant if the index is odd
+        let major_variant = if i % 2 == 1 {
+            match major_variant {
+                'A' => 'T',
+                'C' => 'G',
+                'G' => 'C',
+                'T' => 'A',
+                _ => panic!("Invalid character in kmer string: {}", major_variant),
+            }
+        } else {
+            major_variant
+        };
         write!(file, "{}", major_variant).unwrap();
+        i += 1;
     }
+}
+
+fn snp_major_nucleotide_count(snp_set: &SnpSet, adjusted: bool) -> NucleotideCounts {
+    let mut counts = NucleotideCounts {
+        a: 0,
+        c: 0,
+        g: 0,
+        t: 0,
+    };
+
+    let mut i = 0;
+    for snp in &snp_set.snps {
+        let kmer_string = kmer_to_string(*snp, snp_set.k);
+        let major_variant = kmer_string.chars().last().unwrap();
+
+        // Adjust the major variant if the index is odd
+        let major_variant = if adjusted && i % 2 == 1 {
+            match major_variant {
+                'A' => 'T',
+                'C' => 'G',
+                'G' => 'C',
+                'T' => 'A',
+                _ => panic!("Invalid character in kmer string: {}", major_variant),
+            }
+        } else {
+            major_variant
+        };
+        match major_variant {
+            'A' => counts.a += 1,
+            'C' => counts.c += 1,
+            'G' => counts.g += 1,
+            'T' => counts.t += 1,
+            _ => panic!("Invalid character in kmer string: {}", major_variant),
+        }
+        i += 1;
+    }
+
+    counts
 }
 
 fn main() {
@@ -448,6 +570,13 @@ fn main() {
     // Create a vector of samples
     let mut samples: Vec<Sample> = vec![];
 
+    let mut nuc_counts_all = NucleotideCounts {
+        a: 0,
+        c: 0,
+        g: 0,
+        t: 0,
+    };
+
     for file_name in args.input.iter() {
         println!(" Reading {}...", file_name);
         // get the sample name from the file name by removing the path and extension, if any
@@ -463,6 +592,13 @@ fn main() {
         let reader = std::io::BufReader::new(file);
 
         let mut kmer_counts = MapType::default();
+
+        let mut nuc_counts_sample = NucleotideCounts {
+            a: 0,
+            c: 0,
+            g: 0,
+            t: 0,
+        };
 
         // Iterate over the lines of the file
         for line in reader.lines() {
@@ -506,13 +642,22 @@ fn main() {
             } else if k != kmer_string.len() {
                 panic!("kmer length mismatch: {} != {}", k, kmer_string.len());
             }
+
+            nuc_counts_sample.ingest_kmer_string(kmer_string, count);
         }
+
+        nuc_counts_all.add(&nuc_counts_sample);
+        let (a_freq, c_freq, g_freq, t_freq, total) = nuc_counts_sample.get_pi();
+        
         println!("  Number of processed kmers: {}", line_n);
+        println!("  Number of ingested nucleotides: {}", total);
         println!("  Number of ingested kmers: {}", kmer_counts.len());
         println!(
             "  Total count of ingested kmers: {}",
             kmer_counts.values().sum::<u64>()
         );
+        println!("  Sample {} kmer pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T", sample_name,  a_freq, c_freq, g_freq, t_freq);
+        println!("  Sample {} expected genome pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T", sample_name,  (a_freq+t_freq)/2.0, (c_freq+g_freq)/2.0, (c_freq+g_freq)/2.0, (a_freq+t_freq)/2.0);
         println!("  kmer length: {}", k);
 
         // remove the most common kmers
@@ -549,6 +694,11 @@ fn main() {
             panic!("kmer length mismatch across samples: {} != {}", k, sample.k);
         }
     }
+
+    let (a_freq, c_freq, g_freq, t_freq, total) = nuc_counts_all.get_pi();
+    println!("  All kmer pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",  a_freq, c_freq, g_freq, t_freq);
+    println!("  All expected genome pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",  (a_freq+t_freq)/2.0, (c_freq+g_freq)/2.0, (c_freq+g_freq)/2.0, (a_freq+t_freq)/2.0);
+    println!("  Total number of ingested nucleotides: {}", total);
 
     println!("Ingesting samples done, time: {:?}", start.elapsed());
 
@@ -595,6 +745,16 @@ fn main() {
     }
     println!("Calling genotypes done.");
 
+    // get pi
+    let counts = snp_major_nucleotide_count(&snp_set, false);
+    let (a_freq, c_freq, g_freq, t_freq, total) = counts.get_pi();
+    println!("Unadjusted major variant pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",  a_freq, c_freq, g_freq, t_freq);
+
+    let counts = snp_major_nucleotide_count(&snp_set, true);
+    let (a_freq, c_freq, g_freq, t_freq, total) = counts.get_pi();
+    println!("Adjusted major variant pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",  a_freq, c_freq, g_freq, t_freq);
+    
+
     // Write the vcf files
     print!("Writing vcf files... ");
     for sample in samples.iter() {
@@ -638,6 +798,7 @@ mod tests {
                 0b101110, // Exceed ploidy, should be excluded
                 0b111100, 0b111101, 0b111110,
             ],
+            genotype: vec![],
         };
 
         let sample2 = Sample {
@@ -651,6 +812,7 @@ mod tests {
                 0b001111, // Should be excluded due to ploidy in sample1
                 0b111111,
             ],
+            genotype: vec![],
         };
 
         vec![sample1, sample2]
