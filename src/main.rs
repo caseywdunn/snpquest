@@ -10,7 +10,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Deserialize;
 
 type Kmer = u64;
-type MapType = rustc_hash::FxHashMap<Kmer, u64>;
+type MapType = rustc_hash::FxHashMap<Kmer, u16>;
 
 // Notes
 // - To adjust for nucleotide biases in the canonical variant, we will take the reverse
@@ -99,7 +99,7 @@ struct Sample {
     name: String,
     path: String,
     k: usize,
-    kmers: FxHashMap<Kmer, u16>,
+    kmers: MapType,
     genotype: Genotype,
 }
 
@@ -140,7 +140,8 @@ impl NucleotideCounts {
         (a_freq, c_freq, g_freq, t_freq, total)
     }
 
-    fn ingest_kmer_string(&mut self, kmer_string: &str, count: u64) {
+    fn ingest_kmer_string(&mut self, kmer_string: &str, count: u16) {
+        let count = count as u64; // Convert to u64 for internal counting
         for c in kmer_string.chars() {
             match c {
                 'A' => self.a += count,
@@ -714,7 +715,7 @@ fn main() {
             };
 
             // Attempt to parse the count
-            let count: u64 = match count_str.parse() {
+            let count: u16 = match count_str.parse() {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!(
@@ -750,7 +751,7 @@ fn main() {
         println!("  Number of ingested kmers: {}", kmer_counts.len());
         println!(
             "  Total count of ingested kmers: {}",
-            kmer_counts.values().sum::<u64>()
+            kmer_counts.values().map(|&c| c as u64).sum::<u64>()
         );
         println!(
             "  Sample {} kmer pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",
@@ -781,18 +782,11 @@ fn main() {
         }
         println!("  Number of kmers after discarding: {}", kmer_counts.len());
 
-        // Convert to our new HashMap-based Sample structure
-        // TODO - maybe use original structure?
-        let kmers: FxHashMap<Kmer, u16> = kmer_counts
-            .iter()
-            .map(|(k, v)| (*k, *v as u16)) // Convert counts to u16
-            .collect();
-
         samples.push(Sample {
             name: sample_name.to_string(),
             path: file_name.to_string(),
             k,
-            kmers,
+            kmers: kmer_counts,
             genotype: vec![],
         });
     }
