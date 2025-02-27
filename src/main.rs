@@ -47,6 +47,7 @@ type Locus = u8;
 
 fn locus_to_base(locus: Locus) -> String {
     match locus {
+        0b0000 => "N".to_string(),
         0b0001 => "A".to_string(),
         0b0010 => "C".to_string(),
         0b0100 => "G".to_string(),
