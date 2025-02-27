@@ -34,32 +34,37 @@ type SampleVariantCounts = Vec<VariantCount>;
 // Key is snp site, kmer with the last two bits masked to 0
 type Variants = FxHashMap<Kmer, SampleVariantCounts>;
 
-// Bit packed encoding of one or more nucleotides at a given site
-// It is a serialized base plane
-// 0000 No variant observed
-// 0001 A
-// 0010 C
-// 0100 G
-// 1000 T
-// These can be summed, so for example 0011 is A and C observed
-type Locus = u8;
+#[derive(Clone, Debug, Default)]
+struct Locus {
+    a_count: u16,
+    c_count: u16,
+    g_count: u16,
+    t_count: u16,
+}
 
 
-fn locus_to_base(locus: Locus) -> String {
-    match locus {
+fn locus_to_base(locus: &Locus) -> String {
+    // Convert Locus to IUPAC ambiguity code based on which bases are present
+    let mut code = 0u8;
+    
+    if locus.a_count > 0 { code |= 0b0001; }
+    if locus.c_count > 0 { code |= 0b0010; }
+    if locus.g_count > 0 { code |= 0b0100; }
+    if locus.t_count > 0 { code |= 0b1000; }
+    
+    match code {
         0b0000 => "N".to_string(),
         0b0001 => "A".to_string(),
         0b0010 => "C".to_string(),
         0b0100 => "G".to_string(),
         0b1000 => "T".to_string(),
-        0b0011 => "M".to_string(),
-        0b0101 => "R".to_string(),
-        0b1001 => "W".to_string(),
-        0b0110 => "S".to_string(),
-        0b1010 => "Y".to_string(),
-        0b1100 => "K".to_string(),
-        _ => panic!("Invalid Locus value: {}", locus),
-        
+        0b0011 => "M".to_string(), // A or C
+        0b0101 => "R".to_string(), // A or G
+        0b1001 => "W".to_string(), // A or T
+        0b0110 => "S".to_string(), // C or G
+        0b1010 => "Y".to_string(), // C or T
+        0b1100 => "K".to_string(), // G or T
+        _ => panic!("Unexpected combination of bases: {}", code),
     }
 }
 
@@ -94,7 +99,7 @@ struct Sample {
     name: String,
     path: String,
     k: usize,
-    kmers: Vec<Kmer>,
+    kmers: FxHashMap<Kmer, u16>,
     genotype: Genotype,
 }
 
@@ -229,16 +234,17 @@ fn discover_snp_sites(
     println!("Finding snps... ");
     // Create a Kmer bitmask for all but the last two bits
     let mut kmer_mask: Kmer = 0;
-    for _ in 0..(k - 1) {
-        kmer_mask |= 0b11;
+    for i in 0..(k - 1) {
         kmer_mask <<= 2;
+        kmer_mask |= 0b11;
     }
+    kmer_mask <<= 2; // Shift once more to mask last two bits
 
     let mut variants: Variants = Variants::default();
 
     for i in 0..samples.len() {
         let sample = &samples[i];
-        for kmer in sample.kmers.iter() {
+        for (kmer, count) in sample.kmers.iter() {
             // Mask the last two bits of the kmer
             let snp_site = kmer & kmer_mask;
             // Get the last two bits of the kmer
@@ -249,7 +255,7 @@ fn discover_snp_sites(
                 .or_insert_with(|| vec![VariantCount::default(); samples.len()]);
             // Increment the count for the variant
             let sample_variants = variants.get_mut(&snp_site).unwrap();
-            sample_variants[i][variant as usize] += 1;
+            sample_variants[i][variant as usize] += count;
         }
     }
 
@@ -351,24 +357,23 @@ fn kmer_to_string(kmer: Kmer, k: usize) -> String {
 
 fn snp_caller(snp_set: &SnpSet, sample: &mut Sample) {
     let mask: Kmer = !0b11;
-    let kmer_set: FxHashSet<Kmer> = sample.kmers.iter().copied().collect();
     sample.genotype.clear();
 
     for &snp in &snp_set.snps {
         let site = snp & mask;
 
         // Check for variants by constructing kmers for each possible base
-        let mut locus: Locus = 0;
+        let mut locus = Locus::default();
 
         for variant in 0..4 {
             let candidate = site | variant as Kmer;
-            if kmer_set.contains(&candidate) {
-                locus |= match variant {
-                    0 => 0b0001, // A
-                    1 => 0b0010, // C
-                    2 => 0b0100, // G
-                    3 => 0b1000, // T
-                    _ => 0,
+            if let Some(count) = sample.kmers.get(&candidate) {
+                match variant {
+                    0 => locus.a_count = *count, // A
+                    1 => locus.c_count = *count, // C
+                    2 => locus.g_count = *count, // G
+                    3 => locus.t_count = *count, // T
+                    _ => {}
                 };
             }
         }
@@ -380,19 +385,19 @@ fn snp_caller(snp_set: &SnpSet, sample: &mut Sample) {
 fn locus_to_string(locus: &Locus) -> String {
     let mut s = String::new();
 
-    if locus & 0b0001 > 0 {
+    if locus.a_count > 0 {
         s.push('A');
     }
 
-    if locus & 0b0010 > 0 {
+    if locus.c_count > 0 {
         s.push('C');
     }
 
-    if locus & 0b0100 > 0 {
+    if locus.g_count > 0 {
         s.push('G');
     }
 
-    if locus & 0b1000 > 0 {
+    if locus.t_count > 0 {
         s.push('T');
     }
     s
@@ -449,8 +454,8 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         let id = kmer_string[0..snp_set.k - 1].to_string() + "X";
 
         // String with the observed variants in this sample in this snp
-        let locus = sample.genotype[i];
-        let mut variants: Vec<char> = locus_to_string(&locus).chars().collect();
+        let locus = &sample.genotype[i];
+        let mut variants: Vec<char> = locus_to_string(locus).chars().collect();
 
         // Take reverse complement of the variants if the index is odd
         if i % 2 == 1 {
@@ -554,7 +559,7 @@ fn write_fasta_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
     // If homozygous, write the resolved base
     // If heterozygous, write the ambiguous base
     for (i, &snp) in snp_set.snps.iter().enumerate() {
-        let locus = sample.genotype[i];
+        let locus = &sample.genotype[i];
         let mut base = locus_to_base(locus);
         // Adjust the base if the index is odd
         if i % 2 == 1 {
@@ -776,8 +781,12 @@ fn main() {
         }
         println!("  Number of kmers after discarding: {}", kmer_counts.len());
 
-        let mut kmers: Vec<Kmer> = kmer_counts.keys().copied().collect();
-        kmers.sort();
+        // Convert to our new HashMap-based Sample structure
+        // TODO - maybe use original structure?
+        let kmers: FxHashMap<Kmer, u16> = kmer_counts
+            .iter()
+            .map(|(k, v)| (*k, *v as u16)) // Convert counts to u16
+            .collect();
 
         samples.push(Sample {
             name: sample_name.to_string(),
@@ -842,7 +851,9 @@ fn main() {
     println!("Calling genotypes...");
     for sample in samples.iter_mut() {
         snp_caller(&snp_set, sample);
-        let n_called = sample.genotype.iter().filter(|&&x| x > 0).count();
+        let n_called = sample.genotype.iter().filter(|x| {
+            x.a_count > 0 || x.c_count > 0 || x.g_count > 0 || x.t_count > 0
+        }).count();
         println!(
             "  Sample {}: {} sites called with {} kmers, {} variants",
             sample.name,
@@ -901,31 +912,33 @@ mod tests {
 
     // Functions used in the tests
     fn create_test_samples() -> Vec<Sample> {
+        let mut kmers1 = FxHashMap::default();
+        kmers1.insert(0b001111, 1); // Two variants at one site, one shared with sample 2
+        kmers1.insert(0b001101, 1);
+        kmers1.insert(0b101110, 1); // Exceed ploidy, should be excluded
+        kmers1.insert(0b111100, 1);
+        kmers1.insert(0b111101, 1);
+        kmers1.insert(0b111110, 1);
+
         let sample1 = Sample {
             name: "sample1".to_string(),
             path: "/path/to/sample1".to_string(),
             k: 3,
-            kmers: vec![
-                // Two variants at one site
-                // One shared with sample 2
-                0b001111, 0b001101, // Singleton, should be excluded
-                0b101110, // Exceed ploidy, should be excluded
-                0b111100, 0b111101, 0b111110,
-            ],
+            kmers: kmers1,
             genotype: vec![],
         };
+
+        let mut kmers2 = FxHashMap::default();
+        kmers2.insert(0b001001, 1); // Two variants at one site, unique to sample2
+        kmers2.insert(0b001011, 1);
+        kmers2.insert(0b001111, 1); // Should be included due to variation in sample1
+        kmers2.insert(0b111111, 1); // Should be excluded due to ploidy in sample1
 
         let sample2 = Sample {
             name: "sample2".to_string(),
             path: "/path/to/sample2".to_string(),
             k: 3,
-            kmers: vec![
-                // Two variants at one site, unique to sample2
-                // Smaller should be retained
-                0b001001, 0b001011, // Should be included due to variation in sample1
-                0b001111, // Should be excluded due to ploidy in sample1
-                0b111111,
-            ],
+            kmers: kmers2,
             genotype: vec![],
         };
 
