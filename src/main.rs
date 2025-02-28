@@ -9,114 +9,15 @@ use clap::Parser;
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
 
-type Kmer = u64;
-type MapType = rustc_hash::FxHashMap<Kmer, u16>;
 
+////////////////////////////////////////////////////////////////////////////////
 // Notes
 // - To adjust for nucleotide biases in the canonical variant, we will take the reverse
 // complement of the variant site of odd variant kmers
 
-// A nested datatype to hold count of snp variation:
-// - snp site, kmer with the last two bits masked to 0.
-// - a vector of length n where n is the number of samples
-// - an array of length 4, corresponding to A, C, G, T variants at the snp
-// - a value that is the count of each variant
 
-/// index `00` is count of `A`
-/// index `01` is count of `C`
-/// index `10` is count of `G`
-/// index `11` is count of `T`
-type VariantCount = [u16; 4];
-
-// Will be length of samples
-type SampleVariantCounts = Vec<VariantCount>;
-
-// Key is snp site, kmer with the last two bits masked to 0
-type Variants = FxHashMap<Kmer, SampleVariantCounts>;
-
-#[derive(Clone, Debug, Default)]
-struct Locus {
-    a_count: u16,
-    c_count: u16,
-    g_count: u16,
-    t_count: u16,
-}
-
-fn locus_to_base(locus: &Locus) -> String {
-    // Convert Locus to IUPAC ambiguity code based on which bases are present
-    let mut code = 0u8;
-
-    if locus.a_count > 0 {
-        code |= 0b0001;
-    }
-    if locus.c_count > 0 {
-        code |= 0b0010;
-    }
-    if locus.g_count > 0 {
-        code |= 0b0100;
-    }
-    if locus.t_count > 0 {
-        code |= 0b1000;
-    }
-
-    match code {
-        0b0000 => "N".to_string(),
-        0b0001 => "A".to_string(),
-        0b0010 => "C".to_string(),
-        0b0100 => "G".to_string(),
-        0b1000 => "T".to_string(),
-        0b0011 => "M".to_string(), // A or C
-        0b0101 => "R".to_string(), // A or G
-        0b1001 => "W".to_string(), // A or T
-        0b0110 => "S".to_string(), // C or G
-        0b1010 => "Y".to_string(), // C or T
-        0b1100 => "K".to_string(), // G or T
-        _ => panic!("Unexpected combination of bases: {}", code),
-    }
-}
-
-fn get_median(values: &[f64]) -> f64 {
-    if values.is_empty() {
-        return 0.0;
-    }
-    
-    let mut values = values.to_vec();
-    values.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let mid = values.len() / 2;
-    
-    if values.len() % 2 == 0 {
-        (values[mid - 1] + values[mid]) / 2.0
-    } else {
-        values[mid]
-    }
-}
-
-fn reverse_complement(seq: &str) -> String {
-    seq.chars()
-        .rev()
-        .map(|c| match c {
-            'A' => 'T',
-            'T' => 'A',
-            'G' => 'C',
-            'C' => 'G',
-            'Y' => 'R', // C or T
-            'R' => 'Y', // A or G
-            'S' => 'S', // C or G
-            'W' => 'W', // A or T
-            'K' => 'M', // G or T
-            'M' => 'K', // A or C
-            'B' => 'V', // C or G or T
-            'V' => 'B', // A or C or G
-            'D' => 'H', // A or G or T
-            'H' => 'D', // A or C or T
-            'N' => 'N', // A or C or G or T
-            _ => panic!("Invalid nucleotide: {}", c),
-        })
-        .collect()
-}
-
-type Genotype = Vec<Locus>;
-
+type Kmer = u64;
+type MapType = rustc_hash::FxHashMap<Kmer, u16>;
 #[derive(Clone)]
 struct Sample {
     name: String,
@@ -136,6 +37,183 @@ struct SnpSet {
     snps: Vec<Kmer>,
 }
 
+/// Counts used during snp discovery
+/// index `00` is count of `A`
+/// index `01` is count of `C`
+/// index `10` is count of `G`
+/// index `11` is count of `T`
+type VariantCount = [u16; 4];
+
+// Will be length of samples
+type SampleVariantCounts = Vec<VariantCount>;
+
+// Key is snp site, kmer with the last two bits masked to 0
+type Variants = FxHashMap<Kmer, SampleVariantCounts>;
+
+// Counts of kmers supporting each variant at a snp site
+#[derive(Clone, Debug, Default)]
+struct Locus {
+    a_count: u16,
+    c_count: u16,
+    g_count: u16,
+    t_count: u16,
+}
+
+type Genotype = Vec<Locus>;
+
+impl Locus {
+    fn complement(&mut self) -> Locus {
+        Locus {
+            a_count: self.t_count,
+            c_count: self.g_count,
+            g_count: self.c_count,
+            t_count: self.a_count,
+        }
+    }
+
+    fn n_variants(&self) -> usize {
+        let mut n = 0;
+        if self.a_count > 0 {
+            n += 1;
+        }
+        if self.c_count > 0 {
+            n += 1;
+        }
+        if self.g_count > 0 {
+            n += 1;
+        }
+        if self.t_count > 0 {
+            n += 1;
+        }
+        n
+    }
+
+    fn incudes(&self, base: char) -> bool {
+        match base {
+            'A' => self.a_count > 0,
+            'C' => self.c_count > 0,
+            'G' => self.g_count > 0,
+            'T' => self.t_count > 0,
+            _ => false,
+        }
+    }
+
+    /// Returns a string with all non zero variants, can be multiple bases
+    fn to_bases(&self) -> String {
+        let mut s = String::new();
+        if self.a_count > 0 {
+            s.push('A');
+        }
+        if self.c_count > 0 {
+            s.push('C');
+        }
+        if self.g_count > 0 {
+            s.push('G');
+        }
+        if self.t_count > 0 {
+            s.push('T');
+        }
+        s
+    }
+
+    /// returns one base, using ambiguous codes if there are multiple variants
+    fn to_base(&self) -> String {
+        if self.n_variants() == 1 {
+            if self.a_count > 0 {
+                return "A".to_string();
+            }
+            if self.c_count > 0 {
+                return "C".to_string();
+            }
+            if self.g_count > 0 {
+                return "G".to_string();
+            }
+            if self.t_count > 0 {
+                return "T".to_string();
+            }
+        }
+        if self.n_variants() == 2 {
+            if self.a_count > 0 && self.c_count > 0 {
+                return "M".to_string();
+            }
+            if self.a_count > 0 && self.g_count > 0 {
+                return "R".to_string();
+            }
+            if self.a_count > 0 && self.t_count > 0 {
+                return "W".to_string();
+            }
+            if self.c_count > 0 && self.g_count > 0 {
+                return "S".to_string();
+            }
+            if self.c_count > 0 && self.t_count > 0 {
+                return "Y".to_string();
+            }
+            if self.g_count > 0 && self.t_count > 0 {
+                return "K".to_string();
+            }
+        }
+        if self.n_variants() == 3 {
+            if self.a_count > 0 && self.c_count > 0 && self.g_count > 0 {
+                return "V".to_string();
+            }
+            if self.a_count > 0 && self.c_count > 0 && self.t_count > 0 {
+                return "H".to_string();
+            }
+            if self.a_count > 0 && self.g_count > 0 && self.t_count > 0 {
+                return "D".to_string();
+            }
+            if self.c_count > 0 && self.g_count > 0 && self.t_count > 0 {
+                return "B".to_string();
+            }
+        }
+        if self.n_variants() == 4 {
+            return "N".to_string();
+        }
+        panic!("Unexpected number of variants: {}", self.n_variants());
+    }
+
+    // Returns that alts string and the genotype string
+    // Takes the reference base as a string
+    fn vcf_strings(&self, reference: &str) -> (String, String) {
+        // homozygous major
+        if self.n_variants() == 1 && self.incudes(reference.chars().next().unwrap()) {
+            let alts_string = ".".to_string();
+            let genotype_string = "0/0:10".to_string();
+            (alts_string, genotype_string)
+        }
+        // homozygous minor
+        else if self.n_variants() == 1 && !self.incudes(reference.chars().next().unwrap()) {
+            let alts_string = self.to_bases();
+            let genotype_string = "1/1:10".to_string();
+            (alts_string, genotype_string)
+        }
+        // heterozygous major/minor
+        else if self.n_variants() == 2 && self.incudes(reference.chars().next().unwrap()) {
+            let mut alts_string = self.to_bases();
+            // Remove the reference base from the alts string
+            alts_string.retain(|c| c != reference.chars().next().unwrap());
+            let genotype_string = "0/1:10,10,100".to_string();
+            (alts_string, genotype_string)
+        }
+        // heterozygous minor/minor
+        else if self.n_variants() == 2 && !self.incudes(reference.chars().next().unwrap()) {
+            let alts_string = self.to_bases();
+            let genotype_string = "1/2:100,10,10".to_string();
+            (alts_string, genotype_string)
+        }
+        // Unsupported case
+        else {
+            panic!(
+                "Unexpected case!\n  variant bases:{}  ref:{}",
+                self.to_bases(),
+                reference
+            );
+        }
+    }
+}
+
+// Counts that span many kmers, requiring a u64, for
+// stats such as nucleotide frequencies
 struct NucleotideCounts {
     a: u64,
     c: u64,
@@ -231,6 +309,46 @@ struct Args {
     verbosity: usize,
 }
 
+fn get_median(values: &[f64]) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    
+    let mut values = values.to_vec();
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let mid = values.len() / 2;
+    
+    if values.len() % 2 == 0 {
+        (values[mid - 1] + values[mid]) / 2.0
+    } else {
+        values[mid]
+    }
+}
+
+fn reverse_complement(seq: &str) -> String {
+    seq.chars()
+        .rev()
+        .map(|c| match c {
+            'A' => 'T',
+            'T' => 'A',
+            'G' => 'C',
+            'C' => 'G',
+            'Y' => 'R', // C or T
+            'R' => 'Y', // A or G
+            'S' => 'S', // C or G
+            'W' => 'W', // A or T
+            'K' => 'M', // G or T
+            'M' => 'K', // A or C
+            'B' => 'V', // C or G or T
+            'V' => 'B', // A or C or G
+            'D' => 'H', // A or G or T
+            'H' => 'D', // A or C or T
+            'N' => 'N', // A or C or G or T
+            _ => panic!("Invalid nucleotide: {}", c),
+        })
+        .collect()
+}
+
 /// Convert a kmer string to a u64
 /// * `00` represents `A`
 /// * `01` represents `C`
@@ -288,7 +406,7 @@ fn discover_snp_sites(
     println!("Finding snps... ");
     // Create a Kmer bitmask for all but the last two bits
     let mut kmer_mask: Kmer = 0;
-    for i in 0..(k - 1) {
+    for _i in 0..(k - 1) {
         kmer_mask <<= 2;
         kmer_mask |= 0b11;
     }
@@ -436,27 +554,6 @@ fn snp_caller(snp_set: &SnpSet, sample: &mut Sample) {
     }
 }
 
-fn locus_to_string(locus: &Locus) -> String {
-    let mut s = String::new();
-
-    if locus.a_count > 0 {
-        s.push('A');
-    }
-
-    if locus.c_count > 0 {
-        s.push('C');
-    }
-
-    if locus.g_count > 0 {
-        s.push('G');
-    }
-
-    if locus.t_count > 0 {
-        s.push('T');
-    }
-    s
-}
-
 fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
     let mut file_path = PathBuf::from(&outdir);
     file_path.push(format!("{}.vcf", sample.name));
@@ -507,82 +604,18 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         // The ID is the kmer_string with the last character set to X
         let id = kmer_string[0..snp_set.k - 1].to_string() + "X";
 
-        // String with the observed variants in this sample in this snp
-        let locus = &sample.genotype[i];
-        let mut variants: Vec<char> = locus_to_string(locus).chars().collect();
+        // Get the locus, or complement it if the index is odd
+        let locus = if i % 2 == 1 {
+            sample.genotype[i].clone().complement()
+        } else {
+            sample.genotype[i].clone()
+        };
 
-        // Take reverse complement of the variants if the index is odd
-        if i % 2 == 1 {
-            for variant in &mut variants {
-                *variant = match *variant {
-                    'A' => 'T',
-                    'C' => 'G',
-                    'G' => 'C',
-                    'T' => 'A',
-                    _ => panic!("Invalid character in kmer string: {}", variant),
-                };
-            }
+        if locus.n_variants() > 2 {
+            panic!("More than two variants at snp site {}: {}", i, locus.to_bases());
         }
 
-        // If there are more than one variants, sort them according to the following criteria:
-        // - If one is the same as the reference, it is first
-        // - All other variants are sorted in alphabetical order
-        variants.sort_by(|a, b| {
-            if a == &reference.chars().next().unwrap() {
-                std::cmp::Ordering::Less
-            } else if b == &reference.chars().next().unwrap() {
-                std::cmp::Ordering::Greater
-            } else {
-                a.cmp(b)
-            }
-        });
-
-        // If there are more than two variants, panic
-        if variants.len() > 2 {
-            panic!(
-                "More than two variants at site, ploidy > 2 not yet supported {}: {}",
-                i,
-                variants.len()
-            );
-        }
-
-        // Construct the alt and genotype string
-        let genotype_string: String;
-        let alts_string: String;
-
-        // There is a single variant, and it is the same as the reference
-        // homozygous major
-        if variants.len() == 1 && variants[0] == reference.chars().next().unwrap() {
-            alts_string = ".".to_string();
-            genotype_string = "0/0:10".to_string();
-        }
-        // There is a single variant, and it is different from the reference
-        // homozygous minor
-        else if variants.len() == 1 && variants[0] != reference.chars().next().unwrap() {
-            alts_string = variants[0].to_string();
-            genotype_string = "1/1:10".to_string();
-        }
-        // There are two variants, one is the same as the reference
-        // heterozygous major/minor
-        else if variants.len() == 2 && variants[0] == reference.chars().next().unwrap() {
-            alts_string = variants[1].to_string();
-            genotype_string = "0/1:10,10,100".to_string();
-        }
-        // There are two variants, neither is the same as the reference
-        // heterozygous minor/minor
-        else if variants.len() == 2 && variants[0] != reference.chars().next().unwrap() {
-            alts_string = format!("{},{}", variants[0], variants[1]);
-            genotype_string = "1/2:100,10,10".to_string();
-        }
-        // Unsupported case
-        else {
-            panic!(
-                "Unexpected case!\n  kmer_string:{}\n  ref:{}\n  variants:{}",
-                kmer_string,
-                reference,
-                variants.iter().collect::<String>()
-            );
-        }
+        let (alts_string, genotype_string) = locus.vcf_strings(&reference);
 
         // Other fields
         let position = i + 1;
@@ -598,7 +631,7 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
     }
 }
 
-fn write_fasta_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
+fn write_fasta_from_sample(sample: &Sample, outdir: &str) {
     let mut file_path = PathBuf::from(&outdir);
     file_path.push(format!("{}.fasta", sample.name));
 
@@ -612,9 +645,8 @@ fn write_fasta_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
     // Reverse complement the sequence if the index is odd
     // If homozygous, write the resolved base
     // If heterozygous, write the ambiguous base
-    for (i, &snp) in snp_set.snps.iter().enumerate() {
-        let locus = &sample.genotype[i];
-        let mut base = locus_to_base(locus);
+    for (i, locus) in sample.genotype.iter().enumerate() {
+        let mut base = locus.to_base();
         // Adjust the base if the index is odd
         if i % 2 == 1 {
             base = reverse_complement(&base);
@@ -929,7 +961,6 @@ fn main() {
         }
     }
 
-    let (a_freq, c_freq, g_freq, t_freq, total) = nuc_counts_all.get_pi();
     print_nucleotide_stats(&nuc_counts_all, "All");
     println!("Ingesting samples done, time: {:?}", start.elapsed());
 
@@ -988,7 +1019,7 @@ fn main() {
     print!("Writing vcf and fasta files... ");
     for sample in samples.iter() {
         write_vcf_from_sample(sample, &snp_set, outdir);
-        write_fasta_from_sample(sample, &snp_set, outdir);
+        write_fasta_from_sample(sample, outdir);
     }
     println!("done");
 
