@@ -42,16 +42,23 @@ struct Locus {
     t_count: u16,
 }
 
-
 fn locus_to_base(locus: &Locus) -> String {
     // Convert Locus to IUPAC ambiguity code based on which bases are present
     let mut code = 0u8;
-    
-    if locus.a_count > 0 { code |= 0b0001; }
-    if locus.c_count > 0 { code |= 0b0010; }
-    if locus.g_count > 0 { code |= 0b0100; }
-    if locus.t_count > 0 { code |= 0b1000; }
-    
+
+    if locus.a_count > 0 {
+        code |= 0b0001;
+    }
+    if locus.c_count > 0 {
+        code |= 0b0010;
+    }
+    if locus.g_count > 0 {
+        code |= 0b0100;
+    }
+    if locus.t_count > 0 {
+        code |= 0b1000;
+    }
+
     match code {
         0b0000 => "N".to_string(),
         0b0001 => "A".to_string(),
@@ -584,7 +591,7 @@ fn write_fasta_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
 
     // Write the header with sample name
     writeln!(file, ">{}", sample.name).unwrap();
-    
+
     // Write the sequence
     // Reverse complement the sequence if the index is odd
     // If homozygous, write the resolved base
@@ -599,7 +606,6 @@ fn write_fasta_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         write!(file, "{}", base).unwrap();
     }
     writeln!(file).unwrap();
-
 }
 
 fn write_pseudogenome(snp_set: &SnpSet, outdir: &str, run_name: String) {
@@ -668,7 +674,13 @@ fn snp_major_nucleotide_count(snp_set: &SnpSet, adjusted: bool) -> NucleotideCou
     counts
 }
 
-fn process_kmer_file(file_name: &str, prefix: &str, discard_fraction: f64, entropy_min: f64, min_count: u16) -> (Sample, NucleotideCounts, usize) {
+fn process_kmer_file(
+    file_name: &str,
+    prefix: &str,
+    discard_fraction: f64,
+    entropy_min: f64,
+    min_count: u16,
+) -> (Sample, NucleotideCounts, usize) {
     println!(" Reading {}...", file_name);
     // Get the sample name from the file name by removing the path and extension
     let sample_name = Path::new(file_name)
@@ -693,8 +705,8 @@ fn process_kmer_file(file_name: &str, prefix: &str, discard_fraction: f64, entro
 
     let mut k: usize = 0;
 
-    let mut entropies: Vec<f64> = vec![]; 
-    
+    let mut entropies: Vec<f64> = vec![];
+
     // Iterate over the lines of the file
     for line in reader.lines() {
         line_n += 1;
@@ -780,7 +792,10 @@ fn process_kmer_file(file_name: &str, prefix: &str, discard_fraction: f64, entro
     );
     println!("  kmer length: {}", k);
     println!("  kmer entropy:");
-    println!("    Mean kmer entropy: {:.3}", entropies.iter().sum::<f64>() / entropies.len() as f64);
+    println!(
+        "    Mean kmer entropy: {:.3}",
+        entropies.iter().sum::<f64>() / entropies.len() as f64
+    );
     println!("    Median kmer entropy: {:.3}", {
         let mut entropies = entropies.clone();
         entropies.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -791,12 +806,18 @@ fn process_kmer_file(file_name: &str, prefix: &str, discard_fraction: f64, entro
             entropies[mid]
         }
     });
-    println!("    Fraction < 1.0: {:.3}", entropies.iter().filter(|&&x| x < 1.0).count() as f64 / entropies.len() as f64);
-    println!("    Fraction < 1.5: {:.3}", entropies.iter().filter(|&&x| x < 1.5).count() as f64 / entropies.len() as f64);
+    println!(
+        "    Fraction < 1.0: {:.3}",
+        entropies.iter().filter(|&&x| x < 1.0).count() as f64 / entropies.len() as f64
+    );
+    println!(
+        "    Fraction < 1.5: {:.3}",
+        entropies.iter().filter(|&&x| x < 1.5).count() as f64 / entropies.len() as f64
+    );
 
     // Remove the most common kmers
     let kmer_counts = filter_high_abundance_kmers(kmer_counts, discard_fraction);
-    
+
     // Create the sample
     let sample = Sample {
         name: sample_name.to_string(),
@@ -867,17 +888,28 @@ fn main() {
 
     // Create a vector of samples
     let mut samples: Vec<Sample> = vec![];
-    let mut nuc_counts_all = NucleotideCounts { a: 0, c: 0, g: 0, t: 0 };
+    let mut nuc_counts_all = NucleotideCounts {
+        a: 0,
+        c: 0,
+        g: 0,
+        t: 0,
+    };
     let mut k: usize = 0;
 
     // Process each input file
     for file_name in args.input.iter() {
-        let (sample, nuc_counts_sample, sample_k) = process_kmer_file(file_name, &args.prefix, args.discard_fraction, args.entropy_min, args.min_count);
-        
+        let (sample, nuc_counts_sample, sample_k) = process_kmer_file(
+            file_name,
+            &args.prefix,
+            args.discard_fraction,
+            args.entropy_min,
+            args.min_count,
+        );
+
         if k == 0 {
             k = sample_k;
         }
-        
+
         nuc_counts_all.add(&nuc_counts_sample);
         samples.push(sample);
     }
@@ -915,9 +947,11 @@ fn main() {
     println!("Calling genotypes...");
     for sample in samples.iter_mut() {
         snp_caller(&snp_set, sample);
-        let n_called = sample.genotype.iter().filter(|x| {
-            x.a_count > 0 || x.c_count > 0 || x.g_count > 0 || x.t_count > 0
-        }).count();
+        let n_called = sample
+            .genotype
+            .iter()
+            .filter(|x| x.a_count > 0 || x.c_count > 0 || x.g_count > 0 || x.t_count > 0)
+            .count();
         println!(
             "  Sample {}: {} sites called with {} kmers, {} variants",
             sample.name,
