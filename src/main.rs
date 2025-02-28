@@ -638,7 +638,7 @@ fn snp_major_nucleotide_count(snp_set: &SnpSet, adjusted: bool) -> NucleotideCou
     counts
 }
 
-fn process_kmer_file(file_name: &str, prefix: &str, discard_fraction: f64) -> (Sample, NucleotideCounts, usize) {
+fn process_kmer_file(file_name: &str, prefix: &str, discard_fraction: f64, min_count: u16) -> (Sample, NucleotideCounts, usize) {
     println!(" Reading {}...", file_name);
     // Get the sample name from the file name by removing the path and extension
     let sample_name = Path::new(file_name)
@@ -696,7 +696,7 @@ fn process_kmer_file(file_name: &str, prefix: &str, discard_fraction: f64) -> (S
         };
 
         // continue if the count is less than the minimum
-        if count < args.min_count {
+        if count < min_count {
             continue;
         }
 
@@ -818,7 +818,7 @@ fn main() {
 
     // Process each input file
     for file_name in args.input.iter() {
-        let (sample, nuc_counts_sample, sample_k) = process_kmer_file(file_name, &args.prefix, args.discard_fraction);
+        let (sample, nuc_counts_sample, sample_k) = process_kmer_file(file_name, &args.prefix, args.discard_fraction, args.min_count);
         
         if k == 0 {
             k = sample_k;
