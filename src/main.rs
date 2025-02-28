@@ -21,6 +21,7 @@ type MapType = rustc_hash::FxHashMap<Kmer, u16>;
 #[derive(Clone)]
 struct Sample {
     name: String,
+    #[allow(dead_code)]
     path: String,
     k: usize,
     kmers: MapType,
@@ -116,6 +117,20 @@ impl Locus {
         s
     }
 
+    fn get_base_count(&self, base: char) -> u16 {
+        match base {
+            'A' => self.a_count,
+            'C' => self.c_count,
+            'G' => self.g_count,
+            'T' => self.t_count,
+            _ => panic!("Invalid base: {}", base),
+        }
+    }
+
+    fn total_count(&self) -> u16 {
+        self.a_count + self.c_count + self.g_count + self.t_count
+    }
+
     /// returns one base, using ambiguous codes if there are multiple variants
     fn to_base(&self) -> String {
         if self.n_variants() == 1 {
@@ -178,13 +193,13 @@ impl Locus {
         // homozygous major
         if self.n_variants() == 1 && self.incudes(reference.chars().next().unwrap()) {
             let alts_string = ".".to_string();
-            let genotype_string = "0/0:10".to_string();
+            let genotype_string = format!("0/0:10:{}", self.total_count());
             (alts_string, genotype_string)
         }
         // homozygous minor
         else if self.n_variants() == 1 && !self.incudes(reference.chars().next().unwrap()) {
             let alts_string = self.to_bases();
-            let genotype_string = "1/1:10".to_string();
+            let genotype_string = format!("1/1:10:0,{}", self.total_count());
             (alts_string, genotype_string)
         }
         // heterozygous major/minor
@@ -192,13 +207,19 @@ impl Locus {
             let mut alts_string = self.to_bases();
             // Remove the reference base from the alts string
             alts_string.retain(|c| c != reference.chars().next().unwrap());
-            let genotype_string = "0/1:10,10,100".to_string();
+
+            let count_ref = self.get_base_count(reference.chars().next().unwrap());
+            let count_alt = self.get_base_count(alts_string.chars().next().unwrap());
+
+            let genotype_string = format!("0/1:10,10,100:{},{}", count_ref, count_alt);
             (alts_string, genotype_string)
         }
         // heterozygous minor/minor
         else if self.n_variants() == 2 && !self.incudes(reference.chars().next().unwrap()) {
             let alts_string = self.to_bases();
-            let genotype_string = "1/2:100,10,10".to_string();
+            let count_alt0 = self.get_base_count(alts_string.chars().nth(0).unwrap());
+            let count_alt1 = self.get_base_count(alts_string.chars().nth(1).unwrap());
+            let genotype_string = format!("1/2:100,10,10:0,{},{}", count_alt0, count_alt1);
             (alts_string, genotype_string)
         }
         // Unsupported case
@@ -624,7 +645,7 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         // Write the record
         writeln!(
             file,
-            "{}\t{}\t{}\t{}\t{}\t30\tPASS\t.\tGT:PL\t{}",
+            "{}\t{}\t{}\t{}\t{}\t30\tPASS\t.\tGT:PL:AD\t{}",
             chromosome, position, id, reference, alts_string, genotype_string
         )
         .unwrap();
