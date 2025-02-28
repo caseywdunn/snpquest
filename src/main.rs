@@ -154,7 +154,7 @@ impl NucleotideCounts {
     }
 }
 
-/// A collection of kmer counting and analysis tools
+/// SNP analyses from raw sequence reads
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -223,6 +223,32 @@ fn string_to_kmer(s: &str) -> Kmer {
         }
     }
     kmer
+}
+
+fn shannon_entropy(kmer: &str) -> f64 {
+    let mut counts = [0u32; 4]; // For A, C, G, T
+
+    for base in kmer.chars() {
+        match base {
+            'A' => counts[0] += 1,
+            'C' => counts[1] += 1,
+            'G' => counts[2] += 1,
+            'T' => counts[3] += 1,
+            _ => {} // optionally handle invalid bases if needed
+        }
+    }
+
+    let k = kmer.len() as f64;
+    let mut entropy = 0.0;
+
+    for &count in &counts {
+        if count > 0 {
+            let p = count as f64 / k;
+            entropy -= p * p.log2();
+        }
+    }
+
+    entropy
 }
 
 fn discover_snp_sites(
@@ -662,6 +688,8 @@ fn process_kmer_file(file_name: &str, prefix: &str, discard_fraction: f64, min_c
     };
 
     let mut k: usize = 0;
+
+    let mut entropies: Vec<f64> = vec![]; 
     
     // Iterate over the lines of the file
     for line in reader.lines() {
@@ -705,6 +733,9 @@ fn process_kmer_file(file_name: &str, prefix: &str, discard_fraction: f64, min_c
             continue;
         }
 
+        let entropy = shannon_entropy(kmer_string);
+        entropies.push(entropy);
+
         let kmer = string_to_kmer(kmer_string);
 
         kmer_counts.insert(kmer, count);
@@ -739,6 +770,20 @@ fn process_kmer_file(file_name: &str, prefix: &str, discard_fraction: f64, min_c
         (a_freq + t_freq) / 2.0
     );
     println!("  kmer length: {}", k);
+    println!("  kmer entropy:");
+    println!("    Mean kmer entropy: {:.3}", entropies.iter().sum::<f64>() / entropies.len() as f64);
+    println!("    Median kmer entropy: {:.3}", {
+        let mut entropies = entropies.clone();
+        entropies.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let mid = entropies.len() / 2;
+        if entropies.len() % 2 == 0 {
+            (entropies[mid - 1] + entropies[mid]) / 2.0
+        } else {
+            entropies[mid]
+        }
+    });
+    println!("    Fraction < 1.0: {:.3}", entropies.iter().filter(|&&x| x < 1.0).count() as f64 / entropies.len() as f64);
+    println!("    Fraction < 1.5: {:.3}", entropies.iter().filter(|&&x| x < 1.5).count() as f64 / entropies.len() as f64);
 
     // Remove the most common kmers
     let kmer_counts = filter_high_abundance_kmers(kmer_counts, discard_fraction);
