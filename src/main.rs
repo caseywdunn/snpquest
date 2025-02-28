@@ -160,7 +160,7 @@ impl NucleotideCounts {
 struct Args {
     /// minimum k-mer count
     #[arg(long, default_value_t = 2)]
-    min_count: usize,
+    min_count: u16,
 
     /// ploidy, used to remove snps whose number of variants are more than expected
     /// in one or more samples
@@ -725,6 +725,11 @@ fn main() {
                     continue;
                 }
             };
+
+            // continue if the count is less than the minimum
+            if count < args.min_count {
+                continue;
+            }
 
             // continue if the kmer does not start with the prefix
             if !args.prefix.is_empty() && !kmer_string.starts_with(&args.prefix) {
