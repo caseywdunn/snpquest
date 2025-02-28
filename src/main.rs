@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::vec;
 
 use clap::Parser;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use serde::Deserialize;
 
 type Kmer = u64;
@@ -598,7 +598,7 @@ fn write_fasta_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
         }
         write!(file, "{}", base).unwrap();
     }
-    write!(file, "\n").unwrap();
+    writeln!(file).unwrap();
 
 }
 
