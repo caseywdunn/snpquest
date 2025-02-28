@@ -490,13 +490,13 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
 
         // Take reverse complement of the variants if the index is odd
         if i % 2 == 1 {
-            for j in 0..variants.len() {
-                variants[j] = match variants[j] {
+            for variant in &mut variants {
+                *variant = match *variant {
                     'A' => 'T',
                     'C' => 'G',
                     'G' => 'C',
                     'T' => 'A',
-                    _ => panic!("Invalid character in kmer string: {}", variants[j]),
+                    _ => panic!("Invalid character in kmer string: {}", variant),
                 };
             }
         }
@@ -894,30 +894,21 @@ fn main() {
     print_nucleotide_stats(&nuc_counts_all, "All");
     println!("Ingesting samples done, time: {:?}", start.elapsed());
 
-    let mut snp_set = SnpSet {
-        sample_names: vec![],
-        k: 0,
-        min_count: 0,
-        ploidy: 0,
-        prefix: String::from(""),
-        snps: vec![],
-    };
-
-    // If a snp file is provided, read it
-    if !args.snp_file.is_empty() {
+    // Load or discover SNP sites
+    let snp_set = if !args.snp_file.is_empty() {
         println!("Reading snp file: {}", args.snp_file);
-        let mut file = File::open(args.snp_file.clone()).expect("Failed to open file");
+        let mut file = File::open(&args.snp_file).expect("Failed to open file");
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).expect("Failed to read file");
-
-        snp_set = bincode::deserialize(&buffer).expect("Failed to deserialize");
+        bincode::deserialize(&buffer).expect("Failed to deserialize")
     } else {
         // Discover the snp sites
         let start = std::time::Instant::now();
         println!("Discovering snp sites...");
-        snp_set = discover_snp_sites(&samples, k, args.ploidy, args.freq_min, args.prefix);
+        let set = discover_snp_sites(&samples, k, args.ploidy, args.freq_min, args.prefix.clone());
         println!("Discovering snp sites done, time: {:?}", start.elapsed());
-    }
+        set
+    };
     println!("Number of snps: {}", snp_set.snps.len());
 
     // Loop over the samples and call the genotype
