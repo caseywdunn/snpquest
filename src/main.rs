@@ -638,6 +638,157 @@ fn snp_major_nucleotide_count(snp_set: &SnpSet, adjusted: bool) -> NucleotideCou
     counts
 }
 
+fn process_kmer_file(file_name: &str, prefix: &str, discard_fraction: f64) -> (Sample, NucleotideCounts, usize) {
+    println!(" Reading {}...", file_name);
+    // Get the sample name from the file name by removing the path and extension
+    let sample_name = Path::new(file_name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown");
+
+    let mut line_n: u64 = 0;
+    // Open the file for buffered reading
+    let file_path = Path::new(file_name);
+    let file = std::fs::File::open(file_path).unwrap();
+    let reader = std::io::BufReader::new(file);
+
+    let mut kmer_counts = MapType::default();
+
+    let mut nuc_counts_sample = NucleotideCounts {
+        a: 0,
+        c: 0,
+        g: 0,
+        t: 0,
+    };
+
+    let mut k: usize = 0;
+    
+    // Iterate over the lines of the file
+    for line in reader.lines() {
+        line_n += 1;
+        let line = match line {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("Error reading line {}: {}", line_n, e);
+                continue;
+            }
+        };
+
+        // Attempt to split the line into two fields
+        let (kmer_string, count_str) = match line.split_once(' ') {
+            Some((kmer, count)) => (kmer, count),
+            None => {
+                eprintln!("Invalid line format at line {}: {}", line_n, line);
+                continue;
+            }
+        };
+
+        // Attempt to parse the count
+        let count: u16 = match count_str.parse() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!(
+                    "Invalid count at line {}: {} (error: {})",
+                    line_n, count_str, e
+                );
+                continue;
+            }
+        };
+
+        // continue if the count is less than the minimum
+        if count < args.min_count {
+            continue;
+        }
+
+        // continue if the kmer does not start with the prefix
+        if !prefix.is_empty() && !kmer_string.starts_with(prefix) {
+            continue;
+        }
+
+        let kmer = string_to_kmer(kmer_string);
+
+        kmer_counts.insert(kmer, count);
+        if k == 0 {
+            k = kmer_string.len();
+        } else if k != kmer_string.len() {
+            panic!("kmer length mismatch: {} != {}", k, kmer_string.len());
+        }
+
+        nuc_counts_sample.ingest_kmer_string(kmer_string, count);
+    }
+
+    // Print statistics for this sample
+    let (a_freq, c_freq, g_freq, t_freq, total) = nuc_counts_sample.get_pi();
+    println!("  Number of processed kmers: {}", line_n);
+    println!("  Number of ingested nucleotides: {}", total);
+    println!("  Number of ingested kmers: {}", kmer_counts.len());
+    println!(
+        "  Total count of ingested kmers: {}",
+        kmer_counts.values().map(|&c| c as u64).sum::<u64>()
+    );
+    println!(
+        "  Sample {} kmer pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",
+        sample_name, a_freq, c_freq, g_freq, t_freq
+    );
+    println!(
+        "  Sample {} expected genome pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",
+        sample_name,
+        (a_freq + t_freq) / 2.0,
+        (c_freq + g_freq) / 2.0,
+        (c_freq + g_freq) / 2.0,
+        (a_freq + t_freq) / 2.0
+    );
+    println!("  kmer length: {}", k);
+
+    // Remove the most common kmers
+    let kmer_counts = filter_high_abundance_kmers(kmer_counts, discard_fraction);
+    
+    // Create the sample
+    let sample = Sample {
+        name: sample_name.to_string(),
+        path: file_name.to_string(),
+        k,
+        kmers: kmer_counts,
+        genotype: vec![],
+    };
+
+    (sample, nuc_counts_sample, k)
+}
+
+fn filter_high_abundance_kmers(mut kmer_counts: MapType, discard_fraction: f64) -> MapType {
+    let mut counts: Vec<_> = kmer_counts.iter().collect();
+    counts.sort_by(|a, b| b.1.cmp(a.1));
+    let n_to_discard = (discard_fraction * counts.len() as f64).round() as usize;
+    println!("  Discarding {} kmers with highest counts", n_to_discard);
+    let keys_to_remove: Vec<Kmer> = counts
+        .iter()
+        .take(n_to_discard)
+        .map(|(kmer, _)| **kmer)
+        .collect();
+    for kmer in keys_to_remove {
+        kmer_counts.remove(&kmer);
+    }
+    println!("  Number of kmers after discarding: {}", kmer_counts.len());
+    kmer_counts
+}
+
+fn print_nucleotide_stats(nuc_counts: &NucleotideCounts, label: &str) {
+    let (a_freq, c_freq, g_freq, t_freq, total) = nuc_counts.get_pi();
+    println!(
+        "  {} kmer pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",
+        label, a_freq, c_freq, g_freq, t_freq
+    );
+    println!(
+        "  {} expected genome pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",
+        label,
+        (a_freq + t_freq) / 2.0,
+        (c_freq + g_freq) / 2.0,
+        (c_freq + g_freq) / 2.0,
+        (a_freq + t_freq) / 2.0
+    );
+    println!("  Total number of ingested nucleotides: {}", total);
+}
+
 fn main() {
     let start_run = std::time::Instant::now();
 
@@ -651,11 +802,10 @@ fn main() {
     println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
     println!("{:?}", args);
 
+    // Create output directory if it doesn't exist
     let path = PathBuf::from(&args.outdir);
     let directory = format!("{}/", path.to_str().unwrap());
     std::fs::create_dir_all(&directory).unwrap();
-
-    let mut k: usize = 0;
 
     let start = std::time::Instant::now();
     println!("Ingesting kmers...");
@@ -663,137 +813,19 @@ fn main() {
 
     // Create a vector of samples
     let mut samples: Vec<Sample> = vec![];
+    let mut nuc_counts_all = NucleotideCounts { a: 0, c: 0, g: 0, t: 0 };
+    let mut k: usize = 0;
 
-    let mut nuc_counts_all = NucleotideCounts {
-        a: 0,
-        c: 0,
-        g: 0,
-        t: 0,
-    };
-
+    // Process each input file
     for file_name in args.input.iter() {
-        println!(" Reading {}...", file_name);
-        // get the sample name from the file name by removing the path and extension, if any
-        let sample_name = Path::new(file_name)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown");
-
-        let mut line_n: u64 = 0;
-        // Open the file for buffered reading
-        let file_path = Path::new(&file_name);
-        let file = std::fs::File::open(file_path).unwrap();
-        let reader = std::io::BufReader::new(file);
-
-        let mut kmer_counts = MapType::default();
-
-        let mut nuc_counts_sample = NucleotideCounts {
-            a: 0,
-            c: 0,
-            g: 0,
-            t: 0,
-        };
-
-        // Iterate over the lines of the file
-        for line in reader.lines() {
-            line_n += 1;
-            let line = match line {
-                Ok(l) => l,
-                Err(e) => {
-                    eprintln!("Error reading line {}: {}", line_n, e);
-                    continue;
-                }
-            };
-
-            // Attempt to split the line into two fields
-            let (kmer_string, count_str) = match line.split_once(' ') {
-                Some((kmer, count)) => (kmer, count),
-                None => {
-                    eprintln!("Invalid line format at line {}: {}", line_n, line);
-                    continue;
-                }
-            };
-
-            // Attempt to parse the count
-            let count: u16 = match count_str.parse() {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!(
-                        "Invalid count at line {}: {} (error: {})",
-                        line_n, count_str, e
-                    );
-                    continue;
-                }
-            };
-
-            // continue if the count is less than the minimum
-            if count < args.min_count {
-                continue;
-            }
-
-            // continue if the kmer does not start with the prefix
-            if !args.prefix.is_empty() && !kmer_string.starts_with(&args.prefix) {
-                continue;
-            }
-
-            let kmer = string_to_kmer(kmer_string);
-
-            kmer_counts.insert(kmer, count);
-            if k == 0 {
-                k = kmer_string.len();
-            } else if k != kmer_string.len() {
-                panic!("kmer length mismatch: {} != {}", k, kmer_string.len());
-            }
-
-            nuc_counts_sample.ingest_kmer_string(kmer_string, count);
+        let (sample, nuc_counts_sample, sample_k) = process_kmer_file(file_name, &args.prefix, args.discard_fraction);
+        
+        if k == 0 {
+            k = sample_k;
         }
-
+        
         nuc_counts_all.add(&nuc_counts_sample);
-        let (a_freq, c_freq, g_freq, t_freq, total) = nuc_counts_sample.get_pi();
-
-        println!("  Number of processed kmers: {}", line_n);
-        println!("  Number of ingested nucleotides: {}", total);
-        println!("  Number of ingested kmers: {}", kmer_counts.len());
-        println!(
-            "  Total count of ingested kmers: {}",
-            kmer_counts.values().map(|&c| c as u64).sum::<u64>()
-        );
-        println!(
-            "  Sample {} kmer pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",
-            sample_name, a_freq, c_freq, g_freq, t_freq
-        );
-        println!(
-            "  Sample {} expected genome pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",
-            sample_name,
-            (a_freq + t_freq) / 2.0,
-            (c_freq + g_freq) / 2.0,
-            (c_freq + g_freq) / 2.0,
-            (a_freq + t_freq) / 2.0
-        );
-        println!("  kmer length: {}", k);
-
-        // remove the most common kmers
-        let mut counts: Vec<_> = kmer_counts.iter().collect();
-        counts.sort_by(|a, b| b.1.cmp(a.1));
-        let n_to_discard = (args.discard_fraction * counts.len() as f64).round() as usize;
-        println!("  Discarding {} kmers with highest counts", n_to_discard);
-        let keys_to_remove: Vec<Kmer> = counts
-            .iter()
-            .take(n_to_discard)
-            .map(|(kmer, _)| **kmer)
-            .collect();
-        for kmer in keys_to_remove {
-            kmer_counts.remove(&kmer);
-        }
-        println!("  Number of kmers after discarding: {}", kmer_counts.len());
-
-        samples.push(Sample {
-            name: sample_name.to_string(),
-            path: file_name.to_string(),
-            k,
-            kmers: kmer_counts,
-            genotype: vec![],
-        });
+        samples.push(sample);
     }
 
     // Verify that all samples have the same kmer length
@@ -805,19 +837,7 @@ fn main() {
     }
 
     let (a_freq, c_freq, g_freq, t_freq, total) = nuc_counts_all.get_pi();
-    println!(
-        "  All kmer pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",
-        a_freq, c_freq, g_freq, t_freq
-    );
-    println!(
-        "  All expected genome pi: {:.3} A, {:.3} C, {:.3} G, {:.3} T",
-        (a_freq + t_freq) / 2.0,
-        (c_freq + g_freq) / 2.0,
-        (c_freq + g_freq) / 2.0,
-        (a_freq + t_freq) / 2.0
-    );
-    println!("  Total number of ingested nucleotides: {}", total);
-
+    print_nucleotide_stats(&nuc_counts_all, "All");
     println!("Ingesting samples done, time: {:?}", start.elapsed());
 
     let mut snp_set = SnpSet {
@@ -894,7 +914,7 @@ fn main() {
     if args.snp_file.is_empty() {
         // Write the snp set to a file
         print!("Writing snp file: {}.snps... ", args.run_name);
-        let mut file_path = PathBuf::from(&outdir);
+        let mut file_path = PathBuf::from(outdir);
         file_path.push(format!("{}.snps", args.run_name));
         let mut file = File::create(file_path).expect("Failed to create file");
         let encoded: Vec<u8> = bincode::serialize(&snp_set).expect("Failed to serialize");
