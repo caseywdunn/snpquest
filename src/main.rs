@@ -75,6 +75,22 @@ fn locus_to_base(locus: &Locus) -> String {
     }
 }
 
+fn get_median(values: &[f64]) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    
+    let mut values = values.to_vec();
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let mid = values.len() / 2;
+    
+    if values.len() % 2 == 0 {
+        (values[mid - 1] + values[mid]) / 2.0
+    } else {
+        values[mid]
+    }
+}
+
 fn reverse_complement(seq: &str) -> String {
     seq.chars()
         .rev()
@@ -796,16 +812,7 @@ fn process_kmer_file(
         "    Mean kmer entropy: {:.3}",
         entropies.iter().sum::<f64>() / entropies.len() as f64
     );
-    println!("    Median kmer entropy: {:.3}", {
-        let mut entropies = entropies.clone();
-        entropies.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let mid = entropies.len() / 2;
-        if entropies.len() % 2 == 0 {
-            (entropies[mid - 1] + entropies[mid]) / 2.0
-        } else {
-            entropies[mid]
-        }
-    });
+    println!("    Median kmer entropy: {:.3}", get_median(&entropies));
     println!(
         "    Fraction < 1.0: {:.3}",
         entropies.iter().filter(|&&x| x < 1.0).count() as f64 / entropies.len() as f64
