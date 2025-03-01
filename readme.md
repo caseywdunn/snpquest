@@ -86,7 +86,25 @@ This will create a directory `output_snp/` with vnf and fasta files for each sam
 You can run a PCA on the vnf files as follows:
 
 ```bash
+ml PLINK
+ml BCFtools
+ml ADMIXTURE
 
+DIRECTORY='/gpfs/gibbs/project/dunn/cwd7/20250212_snp/snpquest/example/output_snp'
+
+# Retain sites that have no more than 2 alleles, one of which is the reference allele, and compress the files
+for file in *.vcf; do bcftools view -i 'GT="0"' -M2 -Oz -o "${file}.gz" "$file"; done
+
+for file in *.vcf.gz; do tabix -p vcf "$file"; done  
+
+NAME=pilot
+
+bcftools merge -oz -o $NAME.merged.vcf.gz *.vcf.gz  > $NAME.bcftools.log
+
+plink2 --vcf $NAME.merged.vcf.gz --double-id --allow-extra-chr --set-missing-var-ids @:# --make-bed --pca --out $NAME.plink --bad-freqs --max-alleles 2 > $NAME.plink.log
+
+num_clusters=5
+admixture --cv $NAME.plink.bed $num_clusters > $NAME.admixture.log
 ```
 
 ### Build a phylogeny
