@@ -878,6 +878,20 @@ fn process_kmer_file(
         "    Fraction < 1.5: {:.3}",
         entropies.iter().filter(|&&x| x < 1.5).count() as f64 / entropies.len() as f64
     );
+    println!(
+        "    Fraction < 1.6: {:.3}",
+        entropies.iter().filter(|&&x| x < 1.6).count() as f64 / entropies.len() as f64
+    );
+    println!(
+        "    Fraction < 1.7: {:.3}",
+        entropies.iter().filter(|&&x| x < 1.7).count() as f64 / entropies.len() as f64
+    );
+    println!(
+        "    Fraction < 1.8: {:.3}",
+        entropies.iter().filter(|&&x| x < 1.8).count() as f64 / entropies.len() as f64
+    );
+
+
 
     // Remove the most common kmers
     let kmer_counts = filter_high_abundance_kmers(kmer_counts, discard_fraction);
