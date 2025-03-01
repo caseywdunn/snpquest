@@ -81,7 +81,7 @@ Once you have prepared the files for each sample, you can run snpquest.
 
 This will create a directory `output_snp/` with vnf and fasta files for each sample.
 
-### PCA
+### Admixture
 
 You can run a PCA on the vnf files as follows:
 
@@ -90,10 +90,8 @@ ml PLINK
 ml BCFtools
 ml ADMIXTURE
 
-DIRECTORY='/gpfs/gibbs/project/dunn/cwd7/20250212_snp/snpquest/example/output_snp'
-
-# Retain sites that have no more than 2 alleles, one of which is the reference allele, and compress the files
-for file in *.vcf; do bcftools view -i 'GT="0"' -M2 -Oz -o "${file}.gz" "$file"; done
+# Retain sites where one allele is the reference allele, and compress the files
+for file in *.vcf; do bcftools view -i 'GT~"0"' -Oz -o "${file}.gz" "$file"; done
 
 for file in *.vcf.gz; do tabix -p vcf "$file"; done  
 
