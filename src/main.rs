@@ -598,6 +598,10 @@ fn write_vcf_from_sample(sample: &Sample, snp_set: &SnpSet, outdir: &str) {
     .unwrap();
     writeln!(
         file,
+        "##FORMAT=<ID=AD,Number=R,Type=Integer,Description=\"Allelic depths for the reference and alternate alleles in the order listed\">"
+    ).unwrap();
+    writeln!(
+        file,
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{}",
         sample.name
     )
