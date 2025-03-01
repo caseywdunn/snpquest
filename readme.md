@@ -81,7 +81,7 @@ Once you have prepared the files for each sample, you can run snpquest.
 
 This will create a directory `output_snp/` with vnf and fasta files for each sample.
 
-### Admixture
+### PCA and Admixture
 
 You can run a PCA on the vnf files as follows:
 
@@ -103,6 +103,22 @@ plink2 --vcf $NAME.merged.vcf.gz --double-id --allow-extra-chr --set-missing-var
 
 num_clusters=5
 admixture --cv $NAME.plink.bed $num_clusters > $NAME.admixture.log
+```
+
+Then, to view the PCA in R:
+
+```r
+library(ggplot2)
+library(ggrepel)
+
+pca <- read.table("pilot.plink.eigenvec", header=FALSE)
+colnames(pca) <- c("FID", "IID", paste0("PC", 1:(ncol(pca)-2)))
+
+ggplot(pca, aes(x=PC1, y=PC2, label=FID)) +
+  geom_point(size=3) +
+  geom_text_repel(size=3, max.overlaps=20, box.padding=0.5, point.padding=0.5) +
+  theme_minimal() +
+  labs(title="PCA Plot", x="PC1", y="PC2")
 ```
 
 ### Build a phylogeny
