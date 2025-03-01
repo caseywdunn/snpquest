@@ -319,7 +319,7 @@ struct Args {
     discard_fraction: f64,
 
     /// minimum entropy. kmers with entropy less than this will be discarded
-    #[arg(long, default_value_t = 1.5)]
+    #[arg(long, default_value_t = 1.6)]
     entropy_min: f64,
 
     /// sample frequency minimum. The snp site must be present in at least this fraction of samples
