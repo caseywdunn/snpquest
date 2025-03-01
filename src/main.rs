@@ -187,19 +187,35 @@ impl Locus {
         panic!("Unexpected number of variants: {}", self.n_variants());
     }
 
-    // Returns that alts string and the genotype string
-    // Takes the reference base as a string
+    /// Returns that alts string and the genotype string
+    /// Takes the reference base as a string
+    /// The per sample genotype string is in the format:
+    /// GT:PL:AD
+    /// GT is the genotype, PL is the phred-scaled genotype likelihoods, AD is the allelic depths
+    /// The reference base is always 0, and the alternate bases are numbered from 1
+    /// The PL values for biallelic sites are in the order:
+    /// 0/0, 0/1, 1/1
+    /// The PL values for multiallelic sites are in the order:
+    /// 0/0, 0/1, 0/2, 1/1, 1/2, 2/2
     fn vcf_strings(&self, reference: &str) -> (String, String) {
         // homozygous major
         if self.n_variants() == 1 && self.incudes(reference.chars().next().unwrap()) {
             let alts_string = ".".to_string();
-            let genotype_string = format!("0/0:10:{}", self.total_count());
+
+            let pl_string = "10,100,100".to_string();
+            let ad_string = self.total_count().to_string();
+            let genotype_string = format!("0/0:{}:{}", pl_string, ad_string);
+
             (alts_string, genotype_string)
         }
         // homozygous minor
         else if self.n_variants() == 1 && !self.incudes(reference.chars().next().unwrap()) {
             let alts_string = self.to_bases();
-            let genotype_string = format!("1/1:10:0,{}", self.total_count());
+
+            let pl_string = "100,100,10".to_string();
+            let ad_string = self.total_count().to_string();
+            let genotype_string = format!("1/1:{}:{}", pl_string, ad_string);
+
             (alts_string, genotype_string)
         }
         // heterozygous major/minor
@@ -211,15 +227,24 @@ impl Locus {
             let count_ref = self.get_base_count(reference.chars().next().unwrap());
             let count_alt = self.get_base_count(alts_string.chars().next().unwrap());
 
-            let genotype_string = format!("0/1:10,10,100:{},{}", count_ref, count_alt);
+            let pl_string = "10,10,100".to_string();
+            let ad_string = format!("{},{}", count_ref, count_alt);
+            let genotype_string = format!("0/1:{}:{}", pl_string, ad_string);
+
             (alts_string, genotype_string)
         }
         // heterozygous minor/minor
+        // In this case the data are not biallelic, and some downstream tools will not consider it
         else if self.n_variants() == 2 && !self.incudes(reference.chars().next().unwrap()) {
             let alts_string = self.to_bases();
+
             let count_alt0 = self.get_base_count(alts_string.chars().nth(0).unwrap());
             let count_alt1 = self.get_base_count(alts_string.chars().nth(1).unwrap());
-            let genotype_string = format!("1/2:100,10,10:0,{},{}", count_alt0, count_alt1);
+
+            let pl_string = "100,100,100,100,10,100".to_string();
+            let ad_string = format!("{},{}", count_alt0, count_alt1);
+
+            let genotype_string = format!("1/2:{}:{}", pl_string, ad_string);
             (alts_string, genotype_string)
         }
         // Unsupported case
